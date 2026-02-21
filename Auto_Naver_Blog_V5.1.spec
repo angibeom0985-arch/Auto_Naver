@@ -33,7 +33,7 @@ a = Analysis(
     pathex=[],
     binaries=python_dlls,
     datas=[
-        ('setting/etc/auto_naver_로고.ico', 'setting/etc')
+        ('setting/etc/auto_naver.ico', 'setting/etc')
     ] + imageio_datas + imageio_ffmpeg_datas + moviepy_datas + imageio_metadata + imageio_ffmpeg_metadata + moviepy_metadata + numpy_metadata + decorator_metadata,
     hiddenimports=[
         'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets', 'PyQt6.sip',
@@ -72,5 +72,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['setting\\etc\\auto_naver_로고.ico'],
+    icon=['setting\\etc\\auto_naver.ico'],
 )

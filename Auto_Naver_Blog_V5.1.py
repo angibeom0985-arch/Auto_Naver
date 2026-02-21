@@ -1986,7 +1986,7 @@ class NaverBlogAutomation:
 
             # PIL imports 확인
             try:
-                from PIL import Image, ImageDraw, ImageFont
+                from PIL import Image, ImageDraw, ImageFont, ImageStat
                 # self._update_status("✅ PIL 모듈 로드 성공")
             except ImportError as ie:
                 self._update_status(f"❌ PIL 임포트 실패: {str(ie)}")
@@ -2046,47 +2046,80 @@ class NaverBlogAutomation:
                     lines.append(title[i:i+max_chars_per_line])
                 title_text = '\n'.join(lines[:max_lines])
             
-            # 폰트 설정 (고정 크기)
-            font_size = 24  # 폰트 크기 약간 줄임
-            
-            try:
-                # 맑은 고딕 폰트 사용
-                font_path = "C:/Windows/Fonts/malgun.ttf"
-                font = ImageFont.truetype(font_path, font_size)
-            except:
-                # 폰트 로드 실패 시 기본 폰트
-                font = ImageFont.load_default()
-            
-            # 텍스트 바운딩 박스 계산
-            bbox = draw.multiline_textbbox((0, 0), title_text, font=font, align='center', spacing=4)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            
-            # 중앙 위치 계산 (여백 고려)
+            # 폰트 후보: setting/image의 사용자 폰트 우선, 없으면 시스템 폰트 사용
+            font_candidates = []
+            for name in sorted(os.listdir(image_folder)):
+                lower = name.lower()
+                if lower.endswith(".ttf") or lower.endswith(".otf") or lower.endswith(".ttc"):
+                    font_candidates.append(os.path.join(image_folder, name))
+            font_candidates.extend([
+                "C:/Windows/Fonts/malgun.ttf",
+                "C:/Windows/Fonts/malgunbd.ttf",
+                "C:/Windows/Fonts/NanumGothic.ttf",
+            ])
+
             available_width = 300 - (margin * 2)
             available_height = 300 - (margin * 2)
+            line_spacing = 8
+            font = None
+            text_width, text_height = 0, 0
+
+            # 영역 안에 들어올 때까지 글자 크기 자동 조절
+            for font_size in range(40, 15, -2):
+                loaded_font = None
+                for font_path in font_candidates:
+                    try:
+                        loaded_font = ImageFont.truetype(font_path, font_size)
+                        break
+                    except Exception:
+                        continue
+                if loaded_font is None:
+                    loaded_font = ImageFont.load_default()
+
+                bbox = draw.multiline_textbbox((0, 0), title_text, font=loaded_font, align='center', spacing=line_spacing)
+                width = bbox[2] - bbox[0]
+                height = bbox[3] - bbox[1]
+                if width <= available_width and height <= available_height:
+                    font = loaded_font
+                    text_width, text_height = width, height
+                    break
+
+            if font is None:
+                font = ImageFont.load_default()
+                bbox = draw.multiline_textbbox((0, 0), title_text, font=font, align='center', spacing=line_spacing)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+
             x = margin + (available_width - text_width) // 2
             y = margin + (available_height - text_height) // 2
-            
-            # 텍스트 그림자 (검정색)
-            shadow_offset = 2
-            draw.multiline_text(
-                (x + shadow_offset, y + shadow_offset), 
-                title_text, 
-                fill=(50, 50, 50), 
-                font=font, 
-                align='center',
-                spacing=4
+
+            # 텍스트 배경 밝기에 따라 색상 자동 반전 (속 빈 글자처럼 보이는 문제 방지)
+            sample_box = (
+                max(0, x), max(0, y),
+                min(300, x + text_width), min(300, y + text_height)
             )
-            
-            # 텍스트 그리기 (흰색)
+            try:
+                sample = img.convert("L").crop(sample_box)
+                mean_luma = ImageStat.Stat(sample).mean[0] if sample.size[0] > 0 and sample.size[1] > 0 else 127
+            except Exception:
+                mean_luma = 127
+
+            if mean_luma >= 150:
+                text_fill = (20, 20, 20)
+                stroke_fill = (245, 245, 245)
+            else:
+                text_fill = (245, 245, 245)
+                stroke_fill = (20, 20, 20)
+
             draw.multiline_text(
-                (x, y), 
-                title_text, 
-                fill=(255, 255, 255), 
-                font=font, 
+                (x, y),
+                title_text,
+                fill=text_fill,
+                font=font,
                 align='center',
-                spacing=4
+                spacing=line_spacing,
+                stroke_width=2,
+                stroke_fill=stroke_fill
             )
             
             # 이미지 저장
@@ -4682,6 +4715,7 @@ class NaverBlogAutomation:
             self._update_status("🌐 브라우저 실행 준비 중...")
             
             # ChromeDriver 자동 버전 매칭
+            service = None
             try:
                 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -4716,18 +4750,27 @@ class NaverBlogAutomation:
 
                     # 구버전 webdriver_manager 호환
                     if not driver_path:
-                        driver_path = ChromeDriverManager(path=wdm_cache_dir).install()
+                        try:
+                            driver_path = ChromeDriverManager(path=wdm_cache_dir).install()
+                        except TypeError:
+                            # 일부 버전은 path 인자를 지원하지 않음
+                            driver_path = ChromeDriverManager().install()
+
+                    if driver_path:
+                        service = Service(driver_path)
+                        self._update_status("✅ ChromeDriver 자동 설치 완료 (앱 전용 캐시 사용)")
                 finally:
                     for k, v in old_env.items():
                         if v is None:
                             os.environ.pop(k, None)
                         else:
                             os.environ[k] = v
+            except Exception:
+                # webdriver-manager 호환 이슈는 치명적 오류가 아니므로 Selenium Manager로 조용히 폴백
+                pass
 
-                service = Service(driver_path)
-                self._update_status("✅ ChromeDriver 자동 설치 완료 (앱 전용 캐시 사용)")
-            except Exception as e:
-                self._update_status(f"⚠️ ChromeDriver 자동 설치 실패, 시스템 기본값 사용: {str(e)[:50]}")
+            if service is None:
+                self._update_status("ℹ️ ChromeDriver 자동 설치 건너뜀 - Selenium Manager 사용")
                 service = Service()
 
             # 공통 옵션 생성 함수
@@ -4919,30 +4962,50 @@ class NaverBlogAutomation:
     def is_logged_in(self):
         """네이버 로그인 여부 확인"""
         try:
+            # 1) 세션 쿠키가 있으면 로그인 유지로 간주
+            if self._has_naver_session_cookie():
+                return True
+
             self.driver.get("https://www.naver.com")
-            self._sleep_with_checks(2)
-            
-            # 로그아웃 버튼이나 내정보 버튼이 있는지 확인
-            try:
-                logout_btn = self.driver.find_elements(By.CLASS_NAME, "btn_logout")
-                my_info = self.driver.find_elements(By.CLASS_NAME, "MyView-module__link_login___HpHMW") # 최신 네이버 메인 클래스명 반영 필요 혹은 일반적인 로그아웃 버튼
-                
-                # 네이버 메인 개편으로 클래스명이 자주 바뀜 -> 로그아웃 텍스트로 찾는 것이 안전
-                logout_texts = self.driver.find_elements(By.XPATH, "//span[contains(text(), '로그아웃')]")
-                
-                if logout_btn or logout_texts:
-                    return True
-                
-                # 로그인 버튼이 있으면 로그인이 안 된 것
-                login_btn = self.driver.find_elements(By.CLASS_NAME, "link_login")
-                if login_btn:
-                    return False
-                    
+            self._sleep_with_checks(1.5)
+
+            # 2) 메인 화면 기준 보조 판별
+            logout_btn = self.driver.find_elements(By.CLASS_NAME, "btn_logout")
+            logout_texts = self.driver.find_elements(By.XPATH, "//span[contains(text(), '로그아웃')]")
+            if logout_btn or logout_texts:
+                return True
+
+            login_btn = self.driver.find_elements(By.CLASS_NAME, "link_login")
+            login_link = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='nidlogin.login']")
+            if login_btn or login_link:
                 return False
-            except:
-                return False
-        except:
+
+            # 3) 메인 페이지 DOM이 바뀐 경우, 실제 글쓰기 접근 가능 여부로 최종 판별
+            return not self._is_naver_write_login_required()
+        except Exception:
             return False
+
+    def _has_naver_session_cookie(self):
+        """Naver 로그인 세션 쿠키 존재 여부 확인"""
+        try:
+            cookies = self.driver.get_cookies() or []
+            cookie_names = {c.get("name", "") for c in cookies}
+            return ("NID_SES" in cookie_names) or ("NID_AUT" in cookie_names)
+        except Exception:
+            return False
+
+    def _is_naver_write_login_required(self):
+        """글쓰기 페이지 접근 시 로그인 페이지로 리다이렉트되는지 확인"""
+        try:
+            if not self.naver_id:
+                return True
+            write_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
+            self.driver.get(write_url)
+            self._sleep_with_checks(1.5)
+            current = (self.driver.current_url or "").lower()
+            return ("nid.naver.com" in current) or ("deviceconfirm" in current)
+        except Exception:
+            return True
 
     def login(self):
         """네이버 로그인 (캡차 우회: 클립보드 복사 붙여넣기 방식)"""
@@ -5017,6 +5080,15 @@ class NaverBlogAutomation:
                         except Exception:
                             pass
                         self._update_status("✅ 로그인 성공!")
+                        return True
+
+                    # URL 변화가 늦더라도 세션 쿠키가 생기면 로그인 성공으로 처리
+                    if self._has_naver_session_cookie():
+                        try:
+                            self.login_tab_handle = self.driver.current_window_handle
+                        except Exception:
+                            pass
+                        self._update_status("✅ 로그인 세션 확인됨!")
                         return True
                     
                     if self.driver.find_elements(By.ID, "captcha"):
@@ -5128,10 +5200,13 @@ class NaverBlogAutomation:
                 # 후속 포스팅도 로그인 상태 재검증
                 try:
                     if not self.is_logged_in():
-                        self._update_status("⚠️ 로그인 세션 만료 감지 - 재로그인 시도")
-                        if not self.login():
-                            self._update_status("❌ 재로그인 실패")
-                            return False
+                        if self._is_naver_write_login_required():
+                            self._update_status("⚠️ 로그인 세션 만료 감지 - 재로그인 시도")
+                            if not self.login():
+                                self._update_status("❌ 재로그인 실패")
+                                return False
+                        else:
+                            self._update_status("✅ 세션 확인: 글쓰기 페이지 접근 가능 (재로그인 생략)")
                 except Exception:
                     self._update_status("⚠️ 로그인 상태 확인 실패 - 재로그인 시도")
                     if not self.login():
@@ -5635,13 +5710,13 @@ class NaverBlogGUI(QMainWindow):
         
         # 아이콘 설정 (모든 창에 적용)
         # 1. base_dir (내부 리소스) 확인
-        icon_path = os.path.join(self.base_dir, "setting", "etc", "auto_naver_로고.ico")
+        icon_path = os.path.join(self.base_dir, "setting", "etc", "auto_naver.ico")
         if not os.path.exists(icon_path):
-             icon_path = os.path.join(self.base_dir, "setting", "auto_naver_로고.ico")
+             icon_path = os.path.join(self.base_dir, "setting", "auto_naver.ico")
 
         if not os.path.exists(icon_path):
             # 2. data_dir (실제 실행 위치/문서 폴더) 확인
-            icon_path = os.path.join(self.data_dir, "setting", "etc", "auto_naver_로고.ico")
+            icon_path = os.path.join(self.data_dir, "setting", "etc", "auto_naver.ico")
             
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
@@ -9548,7 +9623,7 @@ def _migrate_settings_structure(base_dir):
         ("prompt_output_form.txt", "prompt"),
         # Etc
         ("config.json", "etc"),
-        ("auto_naver_로고.ico", "etc"),
+        ("auto_naver.ico", "etc"),
         ("latest_posts.txt", "etc"),
 
     ]
@@ -9612,14 +9687,14 @@ if __name__ == "__main__":
         _migrate_settings_structure(base_dir)
     
     # 아이콘 경로 변경 (etc 폴더)
-    icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver_로고.ico")
+    icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver.ico")
     # 마이그레이션 직후라 아이콘이 아직 안 옮겨졌을 수도 있음 (frozen의 경우 resource는 _MEIPASS에 있음)
     # _MEIPASS 내의 구조는 빌드 시점에 결정되므로, 빌드 시 setting/etc에 넣어야 함.
     # 하지만 개발 환경에서는 마이그레이션 함수가 돌아서 etc로 갔을 것임.
     
     # 하위 호환성 (마이그레이션 전/후 체크)
     if not os.path.exists(icon_path):
-         icon_path = os.path.join(base_dir, "setting", "auto_naver_로고.ico")
+         icon_path = os.path.join(base_dir, "setting", "auto_naver.ico")
 
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
@@ -9665,9 +9740,9 @@ if __name__ == "__main__":
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
         
-        icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver_로고.ico")
+        icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver.ico")
         if not os.path.exists(icon_path):
-             icon_path = os.path.join(base_dir, "setting", "auto_naver_로고.ico")
+             icon_path = os.path.join(base_dir, "setting", "auto_naver.ico")
              
         if os.path.exists(icon_path):
             dialog.setWindowIcon(QIcon(icon_path))
