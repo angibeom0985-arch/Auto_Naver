@@ -5635,13 +5635,13 @@ class NaverBlogGUI(QMainWindow):
         
         # 아이콘 설정 (모든 창에 적용)
         # 1. base_dir (내부 리소스) 확인
-        icon_path = os.path.join(self.base_dir, "setting", "etc", "david153.ico")
+        icon_path = os.path.join(self.base_dir, "setting", "etc", "auto_naver_로고.ico")
         if not os.path.exists(icon_path):
-             icon_path = os.path.join(self.base_dir, "setting", "david153.ico")
+             icon_path = os.path.join(self.base_dir, "setting", "auto_naver_로고.ico")
 
         if not os.path.exists(icon_path):
             # 2. data_dir (실제 실행 위치/문서 폴더) 확인
-            icon_path = os.path.join(self.data_dir, "setting", "etc", "david153.ico")
+            icon_path = os.path.join(self.data_dir, "setting", "etc", "auto_naver_로고.ico")
             
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
@@ -9548,7 +9548,7 @@ def _migrate_settings_structure(base_dir):
         ("prompt_output_form.txt", "prompt"),
         # Etc
         ("config.json", "etc"),
-        ("david153.ico", "etc"),
+        ("auto_naver_로고.ico", "etc"),
         ("latest_posts.txt", "etc"),
 
     ]
@@ -9612,14 +9612,14 @@ if __name__ == "__main__":
         _migrate_settings_structure(base_dir)
     
     # 아이콘 경로 변경 (etc 폴더)
-    icon_path = os.path.join(base_dir, "setting", "etc", "david153.ico")
+    icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver_로고.ico")
     # 마이그레이션 직후라 아이콘이 아직 안 옮겨졌을 수도 있음 (frozen의 경우 resource는 _MEIPASS에 있음)
     # _MEIPASS 내의 구조는 빌드 시점에 결정되므로, 빌드 시 setting/etc에 넣어야 함.
     # 하지만 개발 환경에서는 마이그레이션 함수가 돌아서 etc로 갔을 것임.
     
     # 하위 호환성 (마이그레이션 전/후 체크)
     if not os.path.exists(icon_path):
-         icon_path = os.path.join(base_dir, "setting", "david153.ico")
+         icon_path = os.path.join(base_dir, "setting", "auto_naver_로고.ico")
 
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
@@ -9665,9 +9665,9 @@ if __name__ == "__main__":
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
         
-        icon_path = os.path.join(base_dir, "setting", "etc", "david153.ico")
+        icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver_로고.ico")
         if not os.path.exists(icon_path):
-             icon_path = os.path.join(base_dir, "setting", "david153.ico")
+             icon_path = os.path.join(base_dir, "setting", "auto_naver_로고.ico")
              
         if os.path.exists(icon_path):
             dialog.setWindowIcon(QIcon(icon_path))

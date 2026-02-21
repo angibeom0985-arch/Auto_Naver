@@ -1,2 +1,11 @@
-# Ignore chrome profile directory
-Auto_Naver/chrome_profile/
+# Local runtime secrets/state (do not commit)
+setting/etc/config.json
+dist/setting/etc/config.json
+setting/etc/chrome_profile/
+dist/setting/etc/chrome_profile/
+setting/etc/chrome_profile_temp_*/
+
+# Common cache/build artifacts
+__pycache__/
+*.pyc
+build/
