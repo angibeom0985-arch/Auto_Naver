@@ -16,6 +16,7 @@ import re
 
 
 class LicenseManager:
+    MACHINE_ID_PREFIX = "NAVER"
     """라이선스 관리자 클래스 - Google Spreadsheet 연동"""
 
     # Google Spreadsheet ID
@@ -239,8 +240,25 @@ class LicenseManager:
         return deduped
 
     def _is_valid_machine_id(self, value):
-        v = (value or "").strip().lower()
-        return bool(re.fullmatch(r"[0-9a-f]{32}", v))
+        return bool(self._normalize_machine_id(value))
+
+    def _normalize_machine_id(self, value):
+        """머신 ID를 NAVER 접두사 표준 포맷으로 정규화"""
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+
+        lower = raw.lower()
+        prefix_lower = self.MACHINE_ID_PREFIX.lower()
+        if lower.startswith(prefix_lower):
+            hex_part = lower[len(prefix_lower):]
+        else:
+            hex_part = lower
+
+        if not re.fullmatch(r"[0-9a-f]{32}", hex_part):
+            return ""
+
+        return f"{self.MACHINE_ID_PREFIX}{hex_part}"
 
     def _read_first_saved_machine_id(self):
         registry_saved = self._read_machine_id_from_registry()
@@ -250,8 +268,8 @@ class LicenseManager:
             try:
                 if os.path.exists(path):
                     with open(path, "r", encoding="utf-8") as f:
-                        saved = (f.read() or "").strip().lower()
-                    if self._is_valid_machine_id(saved):
+                        saved = self._normalize_machine_id(f.read())
+                    if saved:
                         return saved
             except Exception:
                 continue
@@ -271,8 +289,9 @@ class LicenseManager:
         """머신 고유 ID 생성/로드 (최초 생성 후 고정)"""
         # 0) 기존 license.json의 등록값이 유효하면 우선 재사용 (업데이트 시 마이그레이션)
         try:
-            registered = (self.license_data.get("registered_machine_id", "") if isinstance(self.license_data, dict) else "").strip().lower()
-            if self._is_valid_machine_id(registered):
+            registered_raw = self.license_data.get("registered_machine_id", "") if isinstance(self.license_data, dict) else ""
+            registered = self._normalize_machine_id(registered_raw)
+            if registered:
                 self._persist_machine_id(registered)
                 return registered
         except Exception:
@@ -298,7 +317,7 @@ class LicenseManager:
             ]
 
         combined = "|".join(parts)
-        machine_id = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:32]
+        machine_id = f"{self.MACHINE_ID_PREFIX}{hashlib.sha256(combined.encode('utf-8')).hexdigest()[:32]}"
 
         # 3) 새 ID 저장 (신규 경로 + 레거시 경로 모두)
         try:
@@ -372,7 +391,7 @@ class LicenseManager:
                         if len(parts) >= 4:
                             name = parts[0].strip()
                             email = parts[1].strip()
-                            machine_id = parts[2].strip().lower()
+                            machine_id = self._normalize_machine_id(parts[2].strip())
                             date = parts[3].strip()
 
                             if machine_id and name:
@@ -400,7 +419,9 @@ class LicenseManager:
         if not buyers:
             return False, "구매자 정보를 불러올 수 없습니다. 인터넷 연결을 확인해주세요."
 
-        current_machine_id = (current_machine_id or "").strip().lower()
+        current_machine_id = self._normalize_machine_id(current_machine_id)
+        if not current_machine_id:
+            return False, "머신 ID 형식이 올바르지 않습니다."
         if current_machine_id in buyers:
             buyer_info = buyers[current_machine_id]
             expire_date = buyer_info.get("expire_date", "")
