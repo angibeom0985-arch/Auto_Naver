@@ -7375,7 +7375,31 @@ class NaverBlogGUI(QMainWindow):
                 border-color: {NAVER_GREEN};
             }}
         """)
-        google_pw_box.addWidget(self.google_pw_entry)
+        google_pw_input_layout = QHBoxLayout()
+        google_pw_input_layout.setSpacing(8)
+        google_pw_input_layout.addWidget(self.google_pw_entry)
+
+        self.google_pw_toggle_btn = QPushButton("비공개")
+        self.google_pw_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.google_pw_toggle_btn.setMinimumSize(70, 32)
+        self.google_pw_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {NAVER_TEXT_SUB};
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 4px 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_TEXT};
+            }}
+        """)
+        self.google_pw_toggle_btn.clicked.connect(self.toggle_web_ai_password)
+        google_pw_input_layout.addWidget(self.google_pw_toggle_btn)
+
+        google_pw_box.addLayout(google_pw_input_layout)
         google_id_layout.addLayout(google_pw_box)
         
         # Google 계정 입력 위젯 배치
@@ -8414,12 +8438,16 @@ class NaverBlogGUI(QMainWindow):
 
     def toggle_web_ai_password(self):
         """웹사이트 AI 비밀번호 표시/숨김"""
-        if self.web_ai_pw_entry.echoMode() == QLineEdit.EchoMode.Password:
-            self.web_ai_pw_entry.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.web_ai_pw_toggle_btn.setText("공개")
+        if not hasattr(self, "google_pw_entry"):
+            return
+        if self.google_pw_entry.echoMode() == QLineEdit.EchoMode.Password:
+            self.google_pw_entry.setEchoMode(QLineEdit.EchoMode.Normal)
+            if hasattr(self, "google_pw_toggle_btn"):
+                self.google_pw_toggle_btn.setText("공개")
         else:
-            self.web_ai_pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
-            self.web_ai_pw_toggle_btn.setText("비공개")
+            self.google_pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
+            if hasattr(self, "google_pw_toggle_btn"):
+                self.google_pw_toggle_btn.setText("비공개")
 
     def on_gemini_mode_changed(self):
         """Gemini 방식 변경"""
