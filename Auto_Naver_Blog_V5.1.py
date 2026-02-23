@@ -119,10 +119,19 @@ def _sanitize_profile_name(name):
 def _load_profile_registry(registry_path):
     try:
         if os.path.exists(registry_path):
-            with open(registry_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
+            # BOM/인코딩 변형 파일까지 최대한 복구 로드
+            for enc in ("utf-8-sig", "utf-8", "cp949"):
+                try:
+                    with open(registry_path, "r", encoding=enc) as f:
+                        raw = f.read()
+                    raw = raw.lstrip("\ufeff").strip()
+                    if not raw:
+                        break
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    continue
     except Exception:
         pass
     return {"counters": {}, "profiles": {}}
@@ -3447,39 +3456,6 @@ class NaverBlogAutomation:
         except Exception:
             pass
         return True
-
-    def _is_invalid_blog_id_page(self):
-        """네이버 블로그 ID 없음/유효하지 않은 요청 화면인지 확인"""
-        try:
-            text = (self.driver.page_source or "").lower()
-            markers = [
-                "유효하지 않은 요청",
-                "블로그 아이디가 없습니다",
-                "invalid request",
-                "blog id",
-            ]
-            return any(m in text for m in markers)
-        except Exception:
-            return False
-
-    def _get_direct_write_urls(self):
-        """계정별 차이를 고려한 글쓰기 직접 접속 URL 후보"""
-        urls = [
-            "https://blog.naver.com/PostWriteForm.naver",
-        ]
-        naver_id = (self.naver_id or "").strip()
-        if naver_id:
-            urls.append(f"https://blog.naver.com/{naver_id}/PostWriteForm.naver")
-            urls.append(f"https://blog.naver.com/PostWriteForm.naver?blogId={naver_id}")
-        # 중복 제거
-        deduped = []
-        seen = set()
-        for u in urls:
-            if u in seen:
-                continue
-            seen.add(u)
-            deduped.append(u)
-        return deduped
     
     def write_post(self, title, content, thumbnail_path=None, video_path=None, is_first_post=True):
         """블로그 글 작성"""
@@ -3566,23 +3542,10 @@ class NaverBlogAutomation:
             
             if not write_clicked:
                 self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속")
-                # 직접 접속 시도 (현재 탭, URL 후보 순차 시도)
-                direct_ok = False
-                for direct_url in self._get_direct_write_urls():
-                    try:
-                        self._update_status(f"🔗 글쓰기 직접 접속 시도: {direct_url}")
-                        self.driver.get(direct_url)
-                        self._sleep_with_checks(2.5)
-                        if self._is_invalid_blog_id_page():
-                            self._update_status("⚠️ 유효하지 않은 블로그 ID 페이지 감지 - 다음 URL로 재시도")
-                            continue
-                        direct_ok = True
-                        break
-                    except Exception:
-                        continue
-                if not direct_ok:
-                    self._update_status("❌ 글쓰기 직접 접속 URL 시도 실패")
-                    return False
+                # 직접 접속 시도 (현재 탭)
+                direct_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
+                self.driver.get(direct_url)
+                self._sleep_with_checks(3)
 
             
             # mainFrame으로 전환
@@ -5165,16 +5128,13 @@ class NaverBlogAutomation:
     def _is_naver_write_login_required(self):
         """글쓰기 페이지 접근 시 로그인 페이지로 리다이렉트되는지 확인"""
         try:
-            write_url = "https://blog.naver.com/PostWriteForm.naver"
+            if not self.naver_id:
+                return True
+            write_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
             self.driver.get(write_url)
             self._sleep_with_checks(1.5)
             current = (self.driver.current_url or "").lower()
-            if ("nid.naver.com" in current) or ("deviceconfirm" in current):
-                return True
-            # 로그인은 되었지만 블로그 ID 경로가 잘못된 화면인 경우는 로그인 문제로 보지 않음
-            if self._is_invalid_blog_id_page():
-                return False
-            return False
+            return ("nid.naver.com" in current) or ("deviceconfirm" in current)
         except Exception:
             return True
 
@@ -5919,8 +5879,6 @@ class NaverBlogGUI(QMainWindow):
         self.max_runtime_error_retries = 3
         self.gemini_web_recovery_attempts = 0
         self.max_gemini_web_recovery = 3
-        self._last_error_report_signature = ""
-        self.latest_creator_report_text = ""
         
         # 타이머 변수 (발행 간격 카운팅)
         self.countdown_seconds = 0
@@ -6068,8 +6026,19 @@ class NaverBlogGUI(QMainWindow):
         try:
             config_path = os.path.join(self.data_dir, "setting", "etc", "config.json")
             if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                # BOM/인코딩 문제로 인한 설정 로드 실패를 방지
+                for enc in ("utf-8-sig", "utf-8", "cp949"):
+                    try:
+                        with open(config_path, "r", encoding=enc) as f:
+                            raw = f.read()
+                        raw = raw.lstrip("\ufeff").strip()
+                        if not raw:
+                            return {}
+                        loaded = json.loads(raw)
+                        if isinstance(loaded, dict):
+                            return loaded
+                    except Exception:
+                        continue
         except Exception as e:
             print(f"⚠️ 설정 로드 실패: {e}")
         return {}
@@ -6796,26 +6765,6 @@ class NaverBlogGUI(QMainWindow):
         self.log_scroll = log_scroll
         self._register_log_scroll_area(self.log_scroll, self.log_label)
         progress_card.content_layout.addWidget(log_scroll)
-
-        self.copy_report_btn = QPushButton("📋 복사")
-        self.copy_report_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.copy_report_btn.setMinimumHeight(32)
-        self.copy_report_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {NAVER_BLUE};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 13px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #0066CC;
-            }}
-        """)
-        self.copy_report_btn.clicked.connect(self.copy_creator_report)
-        progress_card.content_layout.addWidget(self.copy_report_btn)
         
         # 진행 현황 카드는 확장 가능하도록 유지
         
@@ -9250,7 +9199,7 @@ class NaverBlogGUI(QMainWindow):
 
                             self.ui_message_signal.emit(
                                 "⚠️ 경고",
-                                "Gemini 웹 접속/입력에 반복 실패했습니다.\n인터넷/구글 로그인 상태를 확인한 뒤 다시 시작해주세요.\n(진단 정보는 진행 상태 로그에 출력됩니다)",
+                                "Gemini 웹 접속/입력에 반복 실패했습니다.\n인터넷/구글 로그인 상태를 확인한 뒤 다시 시작해주세요.\n(오류 로그는 setting/etc/runtime_errors.log에 저장됨)",
                                 "warning"
                             )
                             self.is_running = False
@@ -9490,24 +9439,6 @@ class NaverBlogGUI(QMainWindow):
         """백그라운드 스레드에서 호출 가능한 메시지 박스 래퍼"""
         self.show_message(title, message, msg_type)
 
-    def _copy_text_safe(self, text):
-        """메인 스레드에서 클립보드 복사"""
-        try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(text or "")
-        except Exception:
-            pass
-
-    def copy_creator_report(self):
-        """최근 생성된 '제작자에게 전달' 보고 텍스트 복사"""
-        text = (self.latest_creator_report_text or "").strip()
-        if not text:
-            self.show_message("안내", "복사할 오류 보고 내용이 아직 없습니다.", "info")
-            return
-        self._copy_text_safe(text)
-        self.update_progress_status("📋 제작자에게 전달: 복사 버튼으로 클립보드에 복사했습니다")
-        self.show_message("복사 완료", "제작자 전달용 내용이 복사되었습니다.", "info")
-
     def _collect_runtime_diagnostics(self):
         """PC별 오류 분류를 위한 최소 진단 정보 수집"""
         diag = {
@@ -9533,12 +9464,6 @@ class NaverBlogGUI(QMainWindow):
                     chrome_caps = caps.get("chrome", {}) if isinstance(caps, dict) else {}
                     diag["browser_version"] = caps.get("browserVersion", "")
                     diag["chromedriver_version"] = chrome_caps.get("chromedriverVersion", "")
-                    chrome_opts = caps.get("goog:chromeOptions", {}) if isinstance(caps, dict) else {}
-                    chrome_args = chrome_opts.get("args", []) if isinstance(chrome_opts, dict) else []
-                    if isinstance(chrome_args, list):
-                        diag["gpu_disabled"] = "--disable-gpu" in chrome_args
-                    else:
-                        diag["gpu_disabled"] = True
                     try:
                         diag["current_url"] = driver.current_url
                     except Exception:
@@ -9552,60 +9477,18 @@ class NaverBlogGUI(QMainWindow):
         return diag
 
     def _write_runtime_error_log(self, context, error):
-        """운영 중 예외 진단을 진행 상태 로그에 출력 (파일 저장 없음)"""
+        """운영 중 예외를 파일에 기록"""
         try:
-            diag = self._collect_runtime_diagnostics()
-            error_type = type(error).__name__
-            error_msg = str(error)
-            self.update_progress_status(
-                f"🧪 진단[{context}] {error_type}: {error_msg[:120]}"
-            )
-
-            # 진행 상태에서 바로 확인할 수 있도록 핵심 값만 요약 출력
-            summary_items = [
-                ("브라우저", diag.get("browser_version", "")),
-                ("드라이버", diag.get("chromedriver_version", "")),
-                ("GPU비활성", diag.get("gpu_disabled", "")),
-                ("윈도우수", diag.get("window_count", "")),
-                ("세션포스팅수", diag.get("browser_session_post_count", "")),
-                ("마지막AI오류", diag.get("last_ai_error", "")),
-                ("현재URL", (diag.get("current_url", "") or "")[:80]),
-            ]
-            summary = ", ".join([f"{k}:{v}" for k, v in summary_items if str(v) != ""])
-            if summary:
-                self.update_progress_status(f"🧪 진단요약[{context}] {summary}")
-
-            # traceback은 마지막 2줄만 진행 상태에 표시
-            tb_text = traceback.format_exc().strip()
-            if tb_text and "NoneType: None" not in tb_text:
-                tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
-                for line in tb_lines[-2:]:
-                    self.update_progress_status(f"🧪 traceback[{context}] {line[:140]}")
-
-            # 제작자 전달용 메시지 생성/자동복사
-            report_lines = [
-                "[제작자에게 전달]",
-                f"시각: {diag.get('timestamp', '')}",
-                f"컨텍스트: {context}",
-                f"오류: {error_type}: {error_msg}",
-                f"브라우저: {diag.get('browser_version', '')}",
-                f"드라이버: {diag.get('chromedriver_version', '')}",
-                f"GPU비활성: {diag.get('gpu_disabled', '')}",
-                f"윈도우수: {diag.get('window_count', '')}",
-                f"세션포스팅수: {diag.get('browser_session_post_count', '')}",
-                f"현재URL: {diag.get('current_url', '')}",
-            ]
-            if tb_text and "NoneType: None" not in tb_text:
-                tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
-                report_lines.append(f"TracebackTail: {' | '.join(tb_lines[-2:])[:300]}")
-            report_text = "\n".join(report_lines)
-            self.latest_creator_report_text = report_text
-
-            signature = f"{context}|{error_type}|{error_msg[:120]}"
-            if signature != self._last_error_report_signature:
-                self._last_error_report_signature = signature
-                self.update_progress_status("📋 제작자에게 전달: 아래 내용을 '복사' 버튼으로 복사해 전달해주세요")
-                self.update_progress_status(f"📋 제작자에게 전달:\n{report_text}")
+            log_dir = os.path.join(self.data_dir, "setting", "etc")
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, "runtime_errors.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {context}\n")
+                f.write(f"{type(error).__name__}: {error}\n")
+                f.write(traceback.format_exc())
+                f.write("\n[diagnostics]\n")
+                f.write(json.dumps(self._collect_runtime_diagnostics(), ensure_ascii=False, indent=2))
+                f.write("\n" + ("-" * 80) + "\n")
         except Exception:
             pass
 
