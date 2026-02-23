@@ -3447,6 +3447,39 @@ class NaverBlogAutomation:
         except Exception:
             pass
         return True
+
+    def _is_invalid_blog_id_page(self):
+        """네이버 블로그 ID 없음/유효하지 않은 요청 화면인지 확인"""
+        try:
+            text = (self.driver.page_source or "").lower()
+            markers = [
+                "유효하지 않은 요청",
+                "블로그 아이디가 없습니다",
+                "invalid request",
+                "blog id",
+            ]
+            return any(m in text for m in markers)
+        except Exception:
+            return False
+
+    def _get_direct_write_urls(self):
+        """계정별 차이를 고려한 글쓰기 직접 접속 URL 후보"""
+        urls = [
+            "https://blog.naver.com/PostWriteForm.naver",
+        ]
+        naver_id = (self.naver_id or "").strip()
+        if naver_id:
+            urls.append(f"https://blog.naver.com/{naver_id}/PostWriteForm.naver")
+            urls.append(f"https://blog.naver.com/PostWriteForm.naver?blogId={naver_id}")
+        # 중복 제거
+        deduped = []
+        seen = set()
+        for u in urls:
+            if u in seen:
+                continue
+            seen.add(u)
+            deduped.append(u)
+        return deduped
     
     def write_post(self, title, content, thumbnail_path=None, video_path=None, is_first_post=True):
         """블로그 글 작성"""
@@ -3533,10 +3566,23 @@ class NaverBlogAutomation:
             
             if not write_clicked:
                 self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속")
-                # 직접 접속 시도 (현재 탭)
-                direct_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
-                self.driver.get(direct_url)
-                self._sleep_with_checks(3)
+                # 직접 접속 시도 (현재 탭, URL 후보 순차 시도)
+                direct_ok = False
+                for direct_url in self._get_direct_write_urls():
+                    try:
+                        self._update_status(f"🔗 글쓰기 직접 접속 시도: {direct_url}")
+                        self.driver.get(direct_url)
+                        self._sleep_with_checks(2.5)
+                        if self._is_invalid_blog_id_page():
+                            self._update_status("⚠️ 유효하지 않은 블로그 ID 페이지 감지 - 다음 URL로 재시도")
+                            continue
+                        direct_ok = True
+                        break
+                    except Exception:
+                        continue
+                if not direct_ok:
+                    self._update_status("❌ 글쓰기 직접 접속 URL 시도 실패")
+                    return False
 
             
             # mainFrame으로 전환
@@ -5119,13 +5165,16 @@ class NaverBlogAutomation:
     def _is_naver_write_login_required(self):
         """글쓰기 페이지 접근 시 로그인 페이지로 리다이렉트되는지 확인"""
         try:
-            if not self.naver_id:
-                return True
-            write_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
+            write_url = "https://blog.naver.com/PostWriteForm.naver"
             self.driver.get(write_url)
             self._sleep_with_checks(1.5)
             current = (self.driver.current_url or "").lower()
-            return ("nid.naver.com" in current) or ("deviceconfirm" in current)
+            if ("nid.naver.com" in current) or ("deviceconfirm" in current):
+                return True
+            # 로그인은 되었지만 블로그 ID 경로가 잘못된 화면인 경우는 로그인 문제로 보지 않음
+            if self._is_invalid_blog_id_page():
+                return False
+            return False
         except Exception:
             return True
 
