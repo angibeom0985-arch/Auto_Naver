@@ -156,6 +156,53 @@ def get_profile_name(profile_base_dir, prefix="naver"):
     return "chrome_profile"
 
 
+def _try_acquire_file_lock(lock_path):
+    """교차 프로세스 프로필 충돌 방지를 위한 non-blocking 파일 락"""
+    lock_file = None
+    try:
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        lock_file = open(lock_path, "a+b")
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b"0")
+            lock_file.flush()
+        lock_file.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock_file
+    except Exception:
+        try:
+            if lock_file:
+                lock_file.close()
+        except Exception:
+            pass
+        return None
+
+
+def _release_file_lock(lock_file):
+    if not lock_file:
+        return
+    try:
+        lock_file.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    finally:
+        try:
+            lock_file.close()
+        except Exception:
+            pass
+
+
 from typing import TYPE_CHECKING
 import time
 import os
@@ -386,6 +433,10 @@ class NaverBlogAutomation:
         self.browser_session_post_count = 0
         self.max_session_posts = self._safe_positive_int_config("max_session_posts", 12, minimum=3, maximum=200)
         self.max_session_minutes = self._safe_positive_int_config("max_session_minutes", 180, minimum=30, maximum=720)
+        self.profile_lock_file = None
+        self.profile_lock_path = ""
+        self.profile_slot_name = ""
+        self.profile_dir = ""
         
         # 디렉토리 설정 (exe 실행 시 고려)
         if getattr(sys, 'frozen', False):
@@ -446,6 +497,67 @@ class NaverBlogAutomation:
         if maximum is not None and value > maximum:
             value = maximum
         return value
+
+    def _requested_profile_slot(self):
+        """CLI/ENV/설정에서 지정된 프로필 슬롯명(선택)"""
+        from_cli = _parse_profile_arg(sys.argv)
+        from_env = os.environ.get("AUTO_NAVER_PROFILE", "")
+        from_cfg = ""
+        try:
+            from_cfg = str(self.config.get("profile_name", "")).strip()
+        except Exception:
+            from_cfg = ""
+        requested = _sanitize_profile_name(from_cli or from_env or from_cfg)
+        return requested or None
+
+    def _acquire_profile_slot(self, root_setting):
+        """
+        동시 실행 시 서로 다른 Chrome user-data-dir 사용을 보장.
+        - 지정 슬롯이 있으면 해당 슬롯 고정 사용
+        - 지정 슬롯이 없으면 비어있는 슬롯(chrome_profile, chrome_profile_2...) 자동 점유
+        """
+        if self.profile_lock_file and self.profile_dir:
+            return self.profile_dir
+
+        requested = self._requested_profile_slot()
+        slot_candidates = []
+        if requested:
+            slot_candidates = [f"chrome_profile_{requested}"]
+        else:
+            slot_candidates = ["chrome_profile"] + [f"chrome_profile_{i}" for i in range(2, 11)]
+
+        for slot_name in slot_candidates:
+            lock_path = os.path.join(root_setting, f"{slot_name}.lock")
+            lock_file = _try_acquire_file_lock(lock_path)
+            if not lock_file:
+                continue
+            profile_dir = os.path.join(root_setting, slot_name)
+            os.makedirs(profile_dir, exist_ok=True)
+            self.profile_lock_file = lock_file
+            self.profile_lock_path = lock_path
+            self.profile_slot_name = slot_name
+            self.profile_dir = profile_dir
+            return profile_dir
+
+        # 모든 고정 슬롯 사용 중이면 프로세스 전용 임시 슬롯으로 격리
+        temp_slot = f"chrome_profile_temp_{os.getpid()}"
+        lock_path = os.path.join(root_setting, f"{temp_slot}.lock")
+        lock_file = _try_acquire_file_lock(lock_path)
+        if not lock_file:
+            raise RuntimeError("프로필 슬롯 락을 획득할 수 없습니다.")
+        profile_dir = os.path.join(root_setting, temp_slot)
+        os.makedirs(profile_dir, exist_ok=True)
+        self.profile_lock_file = lock_file
+        self.profile_lock_path = lock_path
+        self.profile_slot_name = temp_slot
+        self.profile_dir = profile_dir
+        return profile_dir
+
+    def _release_profile_slot(self):
+        _release_file_lock(self.profile_lock_file)
+        self.profile_lock_file = None
+        self.profile_lock_path = ""
+        self.profile_slot_name = ""
 
     def recycle_browser_session(self, retries=2):
         """브라우저 세션을 안전하게 재생성하고 로그인 상태까지 복구"""
@@ -3303,6 +3415,13 @@ class NaverBlogAutomation:
             "WinError 10061",
             "WinError 10054",
             "Connection refused",
+            "disconnected: not connected to DevTools",
+            "session deleted because of page crash",
+            "target frame detached",
+            "invalid session id",
+            "unknown error: DevToolsActivePort file doesn't exist",
+            "Stacktrace:",
+            "Symbols not available. Dumping unresolved backtrace",
         ]
         return any(m in text for m in markers)
 
@@ -3495,6 +3614,8 @@ class NaverBlogAutomation:
                 
                 self._update_status(f"✅ 제목 입력 완료: {title[:30]}...")
             except Exception as e:
+                if self._is_driver_connection_error(e):
+                    raise
                 self._update_status(f"❌ 제목 입력 실패: {str(e)}")
                 return False
             
@@ -4553,6 +4674,14 @@ class NaverBlogAutomation:
         except StopRequested:
             return False
         except Exception as e:
+            if self._is_driver_connection_error(e) and not getattr(self, "_write_post_retrying", False):
+                self._update_status("⚠️ 브라우저 연결이 끊겼습니다. 세션 복구 후 1회 재시도합니다...")
+                self._write_post_retrying = True
+                try:
+                    if self._recover_driver_for_posting():
+                        return self.write_post(title, content, thumbnail_path, video_path, is_first_post)
+                finally:
+                    self._write_post_retrying = False
             self._update_status(f"❌ 포스팅 오류: {str(e)}")
             return False
     
@@ -4691,14 +4820,8 @@ class NaverBlogAutomation:
             return False
             
         except Exception as e:
-            if self._is_driver_connection_error(e) and not getattr(self, "_write_post_retrying", False):
-                self._update_status("⚠️ 브라우저 연결이 끊겼습니다. 재시도합니다...")
-                self._write_post_retrying = True
-                try:
-                    if self._recover_driver_for_posting():
-                        return self.write_post(title, content, thumbnail_path, video_path, is_first_post)
-                finally:
-                    self._write_post_retrying = False
+            if self._is_driver_connection_error(e):
+                self._update_status("⚠️ 발행 단계에서 브라우저 연결 끊김 감지")
             self._update_status(f"❌ 발행 오류: {str(e)}")
             return False
     
@@ -4801,8 +4924,8 @@ class NaverBlogAutomation:
             # [중요] 구글 로그인 유지를 위한 사용자 데이터 폴더 설정
             root_setting = os.path.join(self.data_dir, "setting", "etc")
             os.makedirs(root_setting, exist_ok=True)
-            primary_profile = os.path.join(root_setting, "chrome_profile")
-            os.makedirs(primary_profile, exist_ok=True)
+            primary_profile = self._acquire_profile_slot(root_setting)
+            self._update_status(f"🧩 브라우저 프로필 슬롯: {self.profile_slot_name}")
 
             # 1차: 기존 프로필로 실행, 실패 시 2차: 임시 프로필로 재시도
             last_error = None
@@ -4810,7 +4933,7 @@ class NaverBlogAutomation:
                 profile_dir = primary_profile
                 if attempt == 1:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    profile_dir = os.path.join(root_setting, f"chrome_profile_temp_{timestamp}")
+                    profile_dir = os.path.join(root_setting, f"{self.profile_slot_name}_recover_{timestamp}")
                     os.makedirs(profile_dir, exist_ok=True)
                     self._update_status("⚠️ 기존 프로필 실행 실패 - 임시 프로필로 재시도")
 
@@ -5446,6 +5569,12 @@ class NaverBlogAutomation:
         if self.driver:
             self._update_status("✅ 프로그램 종료 (브라우저는 계속 실행됩니다)")
             # self.driver.quit()  # 브라우저는 종료하지 않음
+
+    def __del__(self):
+        try:
+            self._release_profile_slot()
+        except Exception:
+            pass
 
 
 def start_automation(naver_id, naver_pw, api_key, ai_model="gemini", posting_method="search", theme="",
@@ -9033,11 +9162,14 @@ class NaverBlogGUI(QMainWindow):
                                 pass
                             if self.gemini_web_recovery_attempts < self.max_gemini_web_recovery:
                                 try:
+                                    recycled = False
                                     if self.automation:
-                                        self.automation.recycle_browser_session(retries=1)
+                                        recycled = self.automation.recycle_browser_session(retries=1)
+                                    # 세션 재생성에 실패한 경우에만 인스턴스를 버리고 새로 생성
+                                    if not recycled:
+                                        self.automation = None
                                 except Exception:
-                                    pass
-                                self.automation = None
+                                    self.automation = None
                                 time.sleep(5)
                                 continue
 
@@ -9066,8 +9198,10 @@ class NaverBlogGUI(QMainWindow):
                             )
                             break
                         else:
-                            # 키워드는 있지만 다른 이유로 실패 (오류 등) -> 계속 진행
-                            self.update_progress_status("⚠️ 포스팅 실패 - 브라우저를 재시작하고 다음 시도를 준비합니다.")
+                            # 키워드는 있지만 다른 이유로 실패 (오류 등)
+                            # 즉시 인스턴스 폐기 대신, 기존 브라우저 세션 복구를 우선 시도해
+                            # 불필요한 재로그인/창 증가를 최소화한다.
+                            self.update_progress_status("⚠️ 포스팅 실패 - 브라우저 세션 복구 후 다음 시도를 준비합니다.")
                             print("⚠️ 포스팅 실패 - 다음 시도 진행")
                             self.consecutive_runtime_errors += 1
                             if self.consecutive_runtime_errors >= self.max_runtime_error_retries:
@@ -9076,13 +9210,16 @@ class NaverBlogGUI(QMainWindow):
                                 self.ui_state_signal.emit(True, False, False, False)
                                 break
                             
-                            # 브라우저 닫기 및 인스턴스 초기화 (다음 루프에서 새로 생성됨)
+                            # 브라우저 세션 재생성 시도 (인스턴스 유지)
                             try:
                                 if self.automation:
-                                    self.automation.driver.quit()
+                                    ok = self.automation.recycle_browser_session(retries=1)
+                                    if not ok:
+                                        self.automation = None
+                                else:
+                                    self.automation = None
                             except:
-                                pass
-                            self.automation = None
+                                self.automation = None
                             
                             # 잠시 대기 후 재시도
                             time.sleep(5)
@@ -9301,6 +9438,8 @@ class NaverBlogGUI(QMainWindow):
                 diag["current_keyword"] = getattr(self.automation, "current_keyword", "")
                 diag["last_ai_error"] = getattr(self.automation, "last_ai_error", "")
                 diag["browser_session_post_count"] = int(getattr(self.automation, "browser_session_post_count", 0))
+                diag["profile_slot_name"] = getattr(self.automation, "profile_slot_name", "")
+                diag["profile_dir"] = getattr(self.automation, "profile_dir", "")
                 driver = getattr(self.automation, "driver", None)
                 if driver:
                     caps = getattr(driver, "capabilities", {}) or {}

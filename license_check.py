@@ -59,6 +59,20 @@ class LicenseManager:
             return ""
         return "".join(ch.lower() for ch in str(value) if ch.isalnum())
 
+    def _get_stable_uuid_node(self):
+        """uuid.getnode() 값 중 랜덤 가능성이 낮은 값만 반환"""
+        try:
+            node = uuid.getnode()
+            # 로컬 관리 비트가 켜져 있으면 랜덤/가상 값일 수 있어 제외
+            if ((node >> 40) & 0x02) != 0:
+                return ""
+            normalized = self._normalize_identifier(f"{node:012x}")
+            if not normalized or normalized == "000000000000":
+                return ""
+            return normalized
+        except Exception:
+            return ""
+
     def get_local_ip(self):
         """로컬 IP 주소 가져오기 (참고용)"""
         try:
@@ -130,9 +144,40 @@ class LicenseManager:
                 except Exception:
                     pass
 
-            return self._normalize_identifier(str(uuid.getnode()))
+            return self._get_stable_uuid_node()
         except Exception:
-            return self._normalize_identifier(str(uuid.getnode()))
+            return self._get_stable_uuid_node()
+
+    def _read_machine_id_from_registry(self):
+        """Windows 레지스트리(HKCU)에서 저장된 머신 ID 조회"""
+        if platform.system() != "Windows":
+            return ""
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Auto_Naver",
+                0,
+                winreg.KEY_READ,
+            ) as key:
+                value, _ = winreg.QueryValueEx(key, "MachineId")
+                value = (value or "").strip().lower()
+                return value if self._is_valid_machine_id(value) else ""
+        except Exception:
+            return ""
+
+    def _persist_machine_id_to_registry(self, machine_id):
+        """Windows 레지스트리(HKCU)에 머신 ID 저장"""
+        if platform.system() != "Windows":
+            return
+        try:
+            import winreg
+
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Auto_Naver") as key:
+                winreg.SetValueEx(key, "MachineId", 0, winreg.REG_SZ, machine_id)
+        except Exception:
+            pass
 
     def get_windows_machine_guid(self):
         """Windows 레지스트리 MachineGuid 기반 식별자"""
@@ -198,6 +243,9 @@ class LicenseManager:
         return bool(re.fullmatch(r"[0-9a-f]{32}", v))
 
     def _read_first_saved_machine_id(self):
+        registry_saved = self._read_machine_id_from_registry()
+        if registry_saved:
+            return registry_saved
         for path in self._machine_id_paths():
             try:
                 if os.path.exists(path):
@@ -210,6 +258,7 @@ class LicenseManager:
         return ""
 
     def _persist_machine_id(self, machine_id):
+        self._persist_machine_id_to_registry(machine_id)
         for path in self._machine_id_paths():
             try:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -245,6 +294,7 @@ class LicenseManager:
             parts = [
                 self._normalize_identifier(platform.node()),
                 self._normalize_identifier(platform.platform()),
+                self._normalize_identifier(platform.machine()),
             ]
 
         combined = "|".join(parts)
