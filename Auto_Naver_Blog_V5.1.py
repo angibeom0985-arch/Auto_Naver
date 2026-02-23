@@ -9179,7 +9179,7 @@ class NaverBlogGUI(QMainWindow):
 
                             self.ui_message_signal.emit(
                                 "⚠️ 경고",
-                                "Gemini 웹 접속/입력에 반복 실패했습니다.\n인터넷/구글 로그인 상태를 확인한 뒤 다시 시작해주세요.\n(오류 로그는 setting/etc/runtime_errors.log에 저장됨)",
+                                "Gemini 웹 접속/입력에 반복 실패했습니다.\n인터넷/구글 로그인 상태를 확인한 뒤 다시 시작해주세요.\n(진단 정보는 진행 상태 로그에 출력됩니다)",
                                 "warning"
                             )
                             self.is_running = False
@@ -9444,6 +9444,12 @@ class NaverBlogGUI(QMainWindow):
                     chrome_caps = caps.get("chrome", {}) if isinstance(caps, dict) else {}
                     diag["browser_version"] = caps.get("browserVersion", "")
                     diag["chromedriver_version"] = chrome_caps.get("chromedriverVersion", "")
+                    chrome_opts = caps.get("goog:chromeOptions", {}) if isinstance(caps, dict) else {}
+                    chrome_args = chrome_opts.get("args", []) if isinstance(chrome_opts, dict) else []
+                    if isinstance(chrome_args, list):
+                        diag["gpu_disabled"] = "--disable-gpu" in chrome_args
+                    else:
+                        diag["gpu_disabled"] = True
                     try:
                         diag["current_url"] = driver.current_url
                     except Exception:
@@ -9457,18 +9463,33 @@ class NaverBlogGUI(QMainWindow):
         return diag
 
     def _write_runtime_error_log(self, context, error):
-        """운영 중 예외를 파일에 기록"""
+        """운영 중 예외 진단을 진행 상태 로그에 출력 (파일 저장 없음)"""
         try:
-            log_dir = os.path.join(self.data_dir, "setting", "etc")
-            os.makedirs(log_dir, exist_ok=True)
-            log_path = os.path.join(log_dir, "runtime_errors.log")
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {context}\n")
-                f.write(f"{type(error).__name__}: {error}\n")
-                f.write(traceback.format_exc())
-                f.write("\n[diagnostics]\n")
-                f.write(json.dumps(self._collect_runtime_diagnostics(), ensure_ascii=False, indent=2))
-                f.write("\n" + ("-" * 80) + "\n")
+            diag = self._collect_runtime_diagnostics()
+            self.update_progress_status(
+                f"🧪 진단[{context}] {type(error).__name__}: {str(error)[:120]}"
+            )
+
+            # 진행 상태에서 바로 확인할 수 있도록 핵심 값만 요약 출력
+            summary_items = [
+                ("브라우저", diag.get("browser_version", "")),
+                ("드라이버", diag.get("chromedriver_version", "")),
+                ("GPU비활성", diag.get("gpu_disabled", "")),
+                ("윈도우수", diag.get("window_count", "")),
+                ("세션포스팅수", diag.get("browser_session_post_count", "")),
+                ("마지막AI오류", diag.get("last_ai_error", "")),
+                ("현재URL", (diag.get("current_url", "") or "")[:80]),
+            ]
+            summary = ", ".join([f"{k}:{v}" for k, v in summary_items if str(v) != ""])
+            if summary:
+                self.update_progress_status(f"🧪 진단요약[{context}] {summary}")
+
+            # traceback은 마지막 2줄만 진행 상태에 표시
+            tb_text = traceback.format_exc().strip()
+            if tb_text and "NoneType: None" not in tb_text:
+                tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
+                for line in tb_lines[-2:]:
+                    self.update_progress_status(f"🧪 traceback[{context}] {line[:140]}")
         except Exception:
             pass
 
