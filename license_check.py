@@ -16,7 +16,7 @@ import re
 
 
 class LicenseManager:
-    MACHINE_ID_PREFIX = "NAVER"
+    MACHINE_ID_PREFIX = "NAVER-"
     """라이선스 관리자 클래스 - Google Spreadsheet 연동"""
 
     # Google Spreadsheet ID
@@ -242,16 +242,20 @@ class LicenseManager:
         return bool(self._normalize_machine_id(value))
 
     def _normalize_machine_id(self, value):
-        """머신 ID를 NAVER+32hex 표준 포맷으로 정규화 (접두사 필수)"""
+        """머신 ID를 NAVER-+32hex 표준 포맷으로 정규화"""
         raw = (value or "").strip()
         if not raw:
             return ""
 
         lower = raw.lower()
         prefix_lower = self.MACHINE_ID_PREFIX.lower()
-        if not lower.startswith(prefix_lower):
+        if lower.startswith(prefix_lower):
+            hex_part = lower[len(prefix_lower):]
+        elif lower.startswith("naver"):
+            # 하위 호환: NAVERxxxxxxxx... 형태를 NAVER-xxxxxxxx...로 승격
+            hex_part = lower[len("naver"):]
+        else:
             return ""
-        hex_part = lower[len(prefix_lower):]
 
         if not re.fullmatch(r"[0-9a-f]{32}", hex_part):
             return ""
