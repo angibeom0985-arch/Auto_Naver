@@ -5783,6 +5783,7 @@ class NaverBlogGUI(QMainWindow):
     ui_state_signal = pyqtSignal(bool, bool, bool, bool)  # start, stop, pause, resume
     ui_message_signal = pyqtSignal(str, str, str)  # title, message, type
     ui_refresh_status_signal = pyqtSignal()
+    copy_text_signal = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
@@ -5831,6 +5832,7 @@ class NaverBlogGUI(QMainWindow):
         self.ui_state_signal.connect(self._set_control_buttons_safe)
         self.ui_message_signal.connect(self._show_message_safe)
         self.ui_refresh_status_signal.connect(self.update_status_display)
+        self.copy_text_signal.connect(self._copy_text_safe)
 
         # 로그 자동 스크롤 상태 관리
         self._log_autoscroll = {}
@@ -5870,6 +5872,7 @@ class NaverBlogGUI(QMainWindow):
         self.max_runtime_error_retries = 3
         self.gemini_web_recovery_attempts = 0
         self.max_gemini_web_recovery = 3
+        self._last_error_report_signature = ""
         
         # 타이머 변수 (발행 간격 카운팅)
         self.countdown_seconds = 0
@@ -9419,6 +9422,14 @@ class NaverBlogGUI(QMainWindow):
         """백그라운드 스레드에서 호출 가능한 메시지 박스 래퍼"""
         self.show_message(title, message, msg_type)
 
+    def _copy_text_safe(self, text):
+        """메인 스레드에서 클립보드 복사"""
+        try:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text or "")
+        except Exception:
+            pass
+
     def _collect_runtime_diagnostics(self):
         """PC별 오류 분류를 위한 최소 진단 정보 수집"""
         diag = {
@@ -9466,8 +9477,10 @@ class NaverBlogGUI(QMainWindow):
         """운영 중 예외 진단을 진행 상태 로그에 출력 (파일 저장 없음)"""
         try:
             diag = self._collect_runtime_diagnostics()
+            error_type = type(error).__name__
+            error_msg = str(error)
             self.update_progress_status(
-                f"🧪 진단[{context}] {type(error).__name__}: {str(error)[:120]}"
+                f"🧪 진단[{context}] {error_type}: {error_msg[:120]}"
             )
 
             # 진행 상태에서 바로 확인할 수 있도록 핵심 값만 요약 출력
@@ -9490,6 +9503,31 @@ class NaverBlogGUI(QMainWindow):
                 tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
                 for line in tb_lines[-2:]:
                     self.update_progress_status(f"🧪 traceback[{context}] {line[:140]}")
+
+            # 제작자 전달용 메시지 생성/자동복사
+            report_lines = [
+                "[제작자에게 전달]",
+                f"시각: {diag.get('timestamp', '')}",
+                f"컨텍스트: {context}",
+                f"오류: {error_type}: {error_msg}",
+                f"브라우저: {diag.get('browser_version', '')}",
+                f"드라이버: {diag.get('chromedriver_version', '')}",
+                f"GPU비활성: {diag.get('gpu_disabled', '')}",
+                f"윈도우수: {diag.get('window_count', '')}",
+                f"세션포스팅수: {diag.get('browser_session_post_count', '')}",
+                f"현재URL: {diag.get('current_url', '')}",
+            ]
+            if tb_text and "NoneType: None" not in tb_text:
+                tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
+                report_lines.append(f"TracebackTail: {' | '.join(tb_lines[-2:])[:300]}")
+            report_text = "\n".join(report_lines)
+
+            signature = f"{context}|{error_type}|{error_msg[:120]}"
+            if signature != self._last_error_report_signature:
+                self._last_error_report_signature = signature
+                self.copy_text_signal.emit(report_text)
+                self.update_progress_status("📋 제작자에게 전달: 오류 진단 메시지를 클립보드에 복사했습니다")
+                self.update_progress_status(f"📋 제작자에게 전달:\n{report_text}")
         except Exception:
             pass
 
