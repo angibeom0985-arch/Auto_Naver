@@ -4801,13 +4801,10 @@ class NaverBlogAutomation:
                         current_url = self.driver.current_url
                         self._update_status(f"📍 현재 URL: {current_url[:50]}...")
                         
-                        # 현재 창 닫기 (새 탭에서 글쓰기 했던 경우)
+                        # 발행 직후 즉시 close()를 호출하면 환경에 따라 세션 탭이 닫힐 수 있어
+                        # 탭 정리는 run()의 _cleanup_working_tabs()에서 일괄 처리한다.
                         if len(self.driver.window_handles) > 1:
-                            self._update_status("🪟 발행 완료 - 글쓰기 창 닫는 중...")
-                            self.driver.close()
-                            self.driver.switch_to.window(self.driver.window_handles[0])
-                            time.sleep(1)
-                            self._update_status(f"🪟 메인 창으로 전환 완료")
+                            self._update_status("🧹 발행 완료 - 탭 정리는 후속 단계에서 수행합니다")
                         
                         self._update_status("✅ 발행 완료")
                     except Exception as e:
@@ -9135,6 +9132,11 @@ class NaverBlogGUI(QMainWindow):
                         self.automation.callback = self.log_message
                         self.automation.config = self.config
                     
+                    # 중지 후 재시작 시 기존 브라우저 세션을 재사용할 수 있도록 플래그 초기화
+                    if self.automation:
+                        self.automation.should_stop = False
+                        self.automation.should_pause = self.is_paused
+                    
                     # 자동화 실행
                     if not is_first_run_flag:
                         print(f"🔄 [DEBUG] automation.run(is_first_run={is_first_run_flag}) 호출")
@@ -9318,13 +9320,7 @@ class NaverBlogGUI(QMainWindow):
             self.automation.should_pause = False
             self.update_progress_status("⏹️ 포스팅 중지 요청됨...")
             print("⏹️ 포스팅 중지 요청됨...")
-            # 브라우저 자원 해제 시도
-            try:
-                if self.automation.driver:
-                    self.automation.close()
-            except:
-                pass
-            self.automation = None  # 객체 초기화하여 다음 시작시 새로 생성되도록
+            # 브라우저는 유지하여 다음 시작 시 로그인 세션 재사용
         
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
