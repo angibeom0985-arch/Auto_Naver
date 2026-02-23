@@ -5783,7 +5783,6 @@ class NaverBlogGUI(QMainWindow):
     ui_state_signal = pyqtSignal(bool, bool, bool, bool)  # start, stop, pause, resume
     ui_message_signal = pyqtSignal(str, str, str)  # title, message, type
     ui_refresh_status_signal = pyqtSignal()
-    copy_text_signal = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
@@ -5832,7 +5831,6 @@ class NaverBlogGUI(QMainWindow):
         self.ui_state_signal.connect(self._set_control_buttons_safe)
         self.ui_message_signal.connect(self._show_message_safe)
         self.ui_refresh_status_signal.connect(self.update_status_display)
-        self.copy_text_signal.connect(self._copy_text_safe)
 
         # 로그 자동 스크롤 상태 관리
         self._log_autoscroll = {}
@@ -5873,6 +5871,7 @@ class NaverBlogGUI(QMainWindow):
         self.gemini_web_recovery_attempts = 0
         self.max_gemini_web_recovery = 3
         self._last_error_report_signature = ""
+        self.latest_creator_report_text = ""
         
         # 타이머 변수 (발행 간격 카운팅)
         self.countdown_seconds = 0
@@ -6748,6 +6747,26 @@ class NaverBlogGUI(QMainWindow):
         self.log_scroll = log_scroll
         self._register_log_scroll_area(self.log_scroll, self.log_label)
         progress_card.content_layout.addWidget(log_scroll)
+
+        self.copy_report_btn = QPushButton("📋 복사")
+        self.copy_report_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_report_btn.setMinimumHeight(32)
+        self.copy_report_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {NAVER_BLUE};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #0066CC;
+            }}
+        """)
+        self.copy_report_btn.clicked.connect(self.copy_creator_report)
+        progress_card.content_layout.addWidget(self.copy_report_btn)
         
         # 진행 현황 카드는 확장 가능하도록 유지
         
@@ -9430,6 +9449,16 @@ class NaverBlogGUI(QMainWindow):
         except Exception:
             pass
 
+    def copy_creator_report(self):
+        """최근 생성된 '제작자에게 전달' 보고 텍스트 복사"""
+        text = (self.latest_creator_report_text or "").strip()
+        if not text:
+            self.show_message("안내", "복사할 오류 보고 내용이 아직 없습니다.", "info")
+            return
+        self._copy_text_safe(text)
+        self.update_progress_status("📋 제작자에게 전달: 복사 버튼으로 클립보드에 복사했습니다")
+        self.show_message("복사 완료", "제작자 전달용 내용이 복사되었습니다.", "info")
+
     def _collect_runtime_diagnostics(self):
         """PC별 오류 분류를 위한 최소 진단 정보 수집"""
         diag = {
@@ -9521,12 +9550,12 @@ class NaverBlogGUI(QMainWindow):
                 tb_lines = [line.strip() for line in tb_text.splitlines() if line.strip()]
                 report_lines.append(f"TracebackTail: {' | '.join(tb_lines[-2:])[:300]}")
             report_text = "\n".join(report_lines)
+            self.latest_creator_report_text = report_text
 
             signature = f"{context}|{error_type}|{error_msg[:120]}"
             if signature != self._last_error_report_signature:
                 self._last_error_report_signature = signature
-                self.copy_text_signal.emit(report_text)
-                self.update_progress_status("📋 제작자에게 전달: 오류 진단 메시지를 클립보드에 복사했습니다")
+                self.update_progress_status("📋 제작자에게 전달: 아래 내용을 '복사' 버튼으로 복사해 전달해주세요")
                 self.update_progress_status(f"📋 제작자에게 전달:\n{report_text}")
         except Exception:
             pass
