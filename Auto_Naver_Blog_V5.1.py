@@ -431,7 +431,7 @@ class NaverBlogAutomation:
         # 장시간 실행 시 브라우저 리소스 누적 방지용 세션 기준
         self.browser_session_started_at = None
         self.browser_session_post_count = 0
-        self.max_session_posts = self._safe_positive_int_config("max_session_posts", 12, minimum=3, maximum=200)
+        self.max_session_posts = self._safe_positive_int_config("max_session_posts", 4, minimum=3, maximum=200)
         self.max_session_minutes = self._safe_positive_int_config("max_session_minutes", 180, minimum=30, maximum=720)
         self.profile_lock_file = None
         self.profile_lock_path = ""
@@ -3451,6 +3451,12 @@ class NaverBlogAutomation:
     def write_post(self, title, content, thumbnail_path=None, video_path=None, is_first_post=True):
         """블로그 글 작성"""
         try:
+            # 누적 실행 시 탭/팝업 잔존으로 크래시가 발생하는 환경이 있어, 시작 전에 작업 탭을 정리
+            try:
+                self._cleanup_working_tabs()
+            except Exception:
+                pass
+
             # 1. 크롤링 (항상 수행)
             # 블로그 주소가 설정되어 있으면 최신글/인기글 크롤링
             if self.blog_address:
@@ -3468,8 +3474,7 @@ class NaverBlogAutomation:
                 else:
                     self._update_status("⚠️ 크롤링 데이터 없음")
             
-            # 3. 블로그 홈(글쓰기 진입점) 새 탭으로 열기
-            # self._update_status("📝 포스팅 프로세스 시작: 블로그 홈 접속 (새 탭)")
+            # 3. 블로그 홈(글쓰기 진입점) 현재 탭에서 열기
             
             # 브라우저 세션 유효성 확인
             try:
@@ -3480,8 +3485,7 @@ class NaverBlogAutomation:
 
             # 블로그 홈 URL (이곳에서 글쓰기 버튼 클릭 진행)
             home_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage=1&groupId=0"
-            self.driver.execute_script("window.open(arguments[0], '_blank');", home_url)
-            self.driver.switch_to.window(self.driver.window_handles[-1])
+            self.driver.get(home_url)
             
             self._sleep_with_checks(3)
             self._wait_if_paused()
@@ -3494,8 +3498,7 @@ class NaverBlogAutomation:
                     if not self.login():
                         self._update_status("❌ 재로그인 실패")
                         return False
-                    self.driver.execute_script("window.open(arguments[0], '_blank');", home_url)
-                    self.driver.switch_to.window(self.driver.window_handles[-1])
+                    self.driver.get(home_url)
                     self._sleep_with_checks(2)
             except Exception:
                 pass
@@ -3529,11 +3532,10 @@ class NaverBlogAutomation:
                     continue
             
             if not write_clicked:
-                self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속 (새 탭)")
-                # 직접 접속 시도 (새 탭)
+                self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속")
+                # 직접 접속 시도 (현재 탭)
                 direct_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
-                self.driver.execute_script("window.open(arguments[0], '_blank');", direct_url)
-                self.driver.switch_to.window(self.driver.window_handles[-1])
+                self.driver.get(direct_url)
                 self._sleep_with_checks(3)
 
             

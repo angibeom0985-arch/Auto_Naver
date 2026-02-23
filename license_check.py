@@ -243,17 +243,16 @@ class LicenseManager:
         return bool(self._normalize_machine_id(value))
 
     def _normalize_machine_id(self, value):
-        """머신 ID를 NAVER 접두사 표준 포맷으로 정규화"""
+        """머신 ID를 NAVER+32hex 표준 포맷으로 정규화 (접두사 필수)"""
         raw = (value or "").strip()
         if not raw:
             return ""
 
         lower = raw.lower()
         prefix_lower = self.MACHINE_ID_PREFIX.lower()
-        if lower.startswith(prefix_lower):
-            hex_part = lower[len(prefix_lower):]
-        else:
-            hex_part = lower
+        if not lower.startswith(prefix_lower):
+            return ""
+        hex_part = lower[len(prefix_lower):]
 
         if not re.fullmatch(r"[0-9a-f]{32}", hex_part):
             return ""
