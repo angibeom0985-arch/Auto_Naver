@@ -163,8 +163,7 @@ class LicenseManager:
                 winreg.KEY_READ,
             ) as key:
                 value, _ = winreg.QueryValueEx(key, "MachineId")
-                value = (value or "").strip().lower()
-                return value if self._is_valid_machine_id(value) else ""
+                return self._normalize_machine_id(value)
         except Exception:
             return ""
 
