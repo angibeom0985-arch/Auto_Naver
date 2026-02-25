@@ -6144,12 +6144,7 @@ class AccountFileBindingDialog(QDialog):
         save_btn.setFixedHeight(36)
         save_btn.clicked.connect(self.save_and_close)
         footer.addWidget(save_btn)
-
-        close_btn = QPushButton("닫기")
-        close_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
-        close_btn.setFixedHeight(36)
-        close_btn.clicked.connect(self.reject)
-        footer.addWidget(close_btn)
+        save_btn.setText("저장 후 닫기")
         layout.addLayout(footer)
 
         # 계정 수에 맞춰 다이얼로그 높이를 강제 축소해 불필요 여백 제거
