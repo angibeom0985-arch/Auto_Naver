@@ -5845,6 +5845,117 @@ class WebsiteLoginDialog(QDialog):
         self.accept()
 
 
+class NaverAccountsDialog(QDialog):
+    """네이버 계정 다중 등록 다이얼로그"""
+    MAX_SLOTS = 5
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("네이버 계정 관리")
+        self.setMinimumWidth(760)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {NAVER_BG};
+            }}
+            QLabel {{
+                color: {NAVER_TEXT};
+                font-size: 13px;
+            }}
+            QLineEdit, QComboBox {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 7px;
+                font-size: 13px;
+                background-color: white;
+            }}
+            QPushButton {{
+                border: none;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: bold;
+                color: white;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        top_row = QHBoxLayout()
+        top_row.addWidget(QLabel("기본 사용 계정 슬롯:"))
+        self.active_slot_combo = QComboBox()
+        for i in range(self.MAX_SLOTS):
+            self.active_slot_combo.addItem(f"계정 슬롯 {i + 1}", i)
+        top_row.addWidget(self.active_slot_combo, 1)
+        layout.addLayout(top_row)
+
+        self.slot_inputs = []
+        slots = self.parent._get_naver_account_slots()
+        for i in range(self.MAX_SLOTS):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+
+            slot_label = QLabel(f"슬롯 {i + 1}")
+            slot_label.setFixedWidth(58)
+            row.addWidget(slot_label)
+
+            id_entry = QLineEdit()
+            id_entry.setPlaceholderText("네이버 아이디")
+            id_entry.setText(str(slots[i].get("id", "")))
+            row.addWidget(id_entry, 1)
+
+            pw_entry = QLineEdit()
+            pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
+            pw_entry.setPlaceholderText("비밀번호")
+            pw_entry.setText(str(slots[i].get("pw", "")))
+            row.addWidget(pw_entry, 1)
+
+            clear_btn = QPushButton("비우기")
+            clear_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
+            clear_btn.clicked.connect(lambda _, e1=id_entry, e2=pw_entry: self._clear_slot(e1, e2))
+            row.addWidget(clear_btn)
+
+            layout.addLayout(row)
+            self.slot_inputs.append((id_entry, pw_entry))
+
+        active_slot = self.parent._get_active_naver_account_slot(slots)
+        self.active_slot_combo.setCurrentIndex(active_slot)
+
+        guide = QLabel("빈 슬롯은 저장되지 않습니다. 기본 사용 슬롯이 비어 있으면 자동으로 첫 등록 계정이 선택됩니다.")
+        guide.setWordWrap(True)
+        guide.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        layout.addWidget(guide)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        save_btn = QPushButton("💾 저장")
+        save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.clicked.connect(self.save_and_close)
+        cancel_btn = QPushButton("❌ 취소")
+        cancel_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+        cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(save_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+
+    def _clear_slot(self, id_entry, pw_entry):
+        id_entry.clear()
+        pw_entry.clear()
+
+    def save_and_close(self):
+        slots = []
+        for id_entry, pw_entry in self.slot_inputs:
+            slots.append({
+                "id": id_entry.text().strip(),
+                "pw": pw_entry.text().strip(),
+            })
+
+        active_slot = int(self.active_slot_combo.currentData())
+        if self.parent.save_naver_accounts_from_slots(slots, active_slot, show_message=True):
+            self.accept()
+
+
 class NaverBlogGUI(QMainWindow):
     """네이버 블로그 자동 포스팅 GUI 메인 클래스"""
     
@@ -6957,100 +7068,47 @@ class NaverBlogGUI(QMainWindow):
         login_card.header.layout().addWidget(warning_label)
         
         login_card.content_layout.addStretch()
-        
-        login_grid = QGridLayout()
-        login_grid.setColumnStretch(0, 1)
-        login_grid.setColumnStretch(1, 1)
-        
-        id_widget = QWidget()
-        id_widget.setStyleSheet("QWidget { background-color: transparent; }")
-        id_layout = QVBoxLayout(id_widget)
-        id_label = PremiumCard.create_section_label("🆔 아이디", self.font_family)
-        id_layout.addWidget(id_label)
-        self.naver_id_entry = QLineEdit()
-        self.naver_id_entry.setPlaceholderText("네이버 아이디")
-        self.naver_id_entry.setCursorPosition(0)
-        self.naver_id_entry.setStyleSheet(f"""
-            QLineEdit {{
-                border: 2px solid {NAVER_BORDER};
-                border-radius: 10px;
-                padding: 6px;
-                background-color: white;
-                color: {NAVER_TEXT};
-                font-size: 13px;
-                min-height: 20px;
-            }}
-            QLineEdit:focus {{
-                border-color: {NAVER_GREEN};
-            }}
-        """)
-        self.naver_id_entry.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
-        id_layout.addWidget(self.naver_id_entry)
-        login_grid.addWidget(id_widget, 0, 0)
-        
-        pw_widget = QWidget()
-        pw_widget.setStyleSheet("QWidget { background-color: transparent; }")
-        pw_layout = QVBoxLayout(pw_widget)
-        pw_label = PremiumCard.create_section_label("🔒 비밀번호", self.font_family)
-        pw_layout.addWidget(pw_label)
-        pw_container = QHBoxLayout()
-        self.naver_pw_entry = QLineEdit()
-        self.naver_pw_entry.setPlaceholderText("비밀번호")
+
+        # 기존 로직 호환용 숨김 입력 필드
+        self.naver_id_entry = QLineEdit(self)
+        self.naver_id_entry.hide()
+        self.naver_pw_entry = QLineEdit(self)
         self.naver_pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        self.naver_pw_entry.setCursorPosition(0)
-        self.naver_pw_entry.setStyleSheet(f"""
-            QLineEdit {{
+        self.naver_pw_entry.hide()
+        self.pw_toggle_btn = None
+
+        summary_box = QFrame()
+        summary_box.setStyleSheet(f"""
+            QFrame {{
+                background-color: #FFFFFF;
                 border: 2px solid {NAVER_BORDER};
                 border-radius: 10px;
-                padding: 6px;
-                background-color: white;
-                color: {NAVER_TEXT};
-                font-size: 13px;
-                min-height: 20px;
-            }}
-            QLineEdit:focus {{
-                border-color: {NAVER_GREEN};
+                padding: 8px;
             }}
         """)
-        self.naver_pw_entry.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
-        pw_container.addWidget(self.naver_pw_entry)
-        
-        # 비밀번호 토글 버튼
-        pw_toggle_container = QHBoxLayout()
-        pw_toggle_container.setSpacing(5)
-        
-        self.pw_toggle_btn = QPushButton("비공개")
-        self.pw_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.pw_toggle_btn.setMinimumSize(70, 34)
-        self.pw_toggle_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {NAVER_TEXT_SUB};
-                border: none;
-                border-radius: 8px;
-                color: white;
-                font-size: 13px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {NAVER_TEXT};
-            }}
-        """)
-        self.pw_toggle_btn.clicked.connect(self.toggle_password)
-        pw_toggle_container.addWidget(self.pw_toggle_btn)
-        
-        pw_container.addLayout(pw_toggle_container)
-        pw_layout.addLayout(pw_container)
-        login_grid.addWidget(pw_widget, 0, 1)
-        
-        login_card.content_layout.addLayout(login_grid)
-        
-        login_save_btn = QPushButton("💾 로그인 정보 저장")
-        login_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        login_save_btn.setStyleSheet(save_btn_style)
-        login_save_btn.setMinimumHeight(save_btn_height)
-        login_save_btn.clicked.connect(self.save_login_info)
+        summary_layout = QVBoxLayout(summary_box)
+        summary_layout.setContentsMargins(12, 10, 12, 10)
+        summary_layout.setSpacing(6)
+
+        self.naver_account_count_label = QLabel("등록 계정: 0개")
+        self.naver_account_count_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
+        self.naver_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+        summary_layout.addWidget(self.naver_account_count_label)
+
+        self.naver_account_active_label = QLabel("현재 선택: 없음")
+        self.naver_account_active_label.setFont(QFont(self.font_family, 12))
+        self.naver_account_active_label.setStyleSheet(f"color: {NAVER_TEXT_SUB}; border: none;")
+        summary_layout.addWidget(self.naver_account_active_label)
+
+        login_card.content_layout.addWidget(summary_box)
+
+        manage_accounts_btn = QPushButton("👥 계정 관리")
+        manage_accounts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        manage_accounts_btn.setStyleSheet(save_btn_style)
+        manage_accounts_btn.setMinimumHeight(save_btn_height)
+        manage_accounts_btn.clicked.connect(self.open_naver_accounts_dialog)
         login_card.content_layout.addStretch()
-        login_card.content_layout.addWidget(login_save_btn)
+        login_card.content_layout.addWidget(manage_accounts_btn)
         
         login_card.setMinimumHeight(card_min_height)
         
@@ -7999,6 +8057,156 @@ class NaverBlogGUI(QMainWindow):
         tab.setWidget(content)
         return tab
     
+    def _mask_account_id(self, account_id):
+        account_id = (account_id or "").strip()
+        if not account_id:
+            return "없음"
+        if len(account_id) <= 2:
+            return "*" * len(account_id)
+        return f"{account_id[:2]}{'*' * (len(account_id) - 2)}"
+
+    def _get_naver_account_slots(self):
+        max_slots = NaverAccountsDialog.MAX_SLOTS
+        slots = [{"id": "", "pw": ""} for _ in range(max_slots)]
+
+        raw_slots = self.config.get("naver_account_slots", [])
+        if isinstance(raw_slots, list):
+            for i, item in enumerate(raw_slots[:max_slots]):
+                if isinstance(item, dict):
+                    slots[i]["id"] = str(item.get("id", "")).strip()
+                    slots[i]["pw"] = str(item.get("pw", "")).strip()
+
+        has_any = any(s["id"] and s["pw"] for s in slots)
+        if not has_any:
+            legacy_accounts = self.config.get("naver_accounts", [])
+            if isinstance(legacy_accounts, list):
+                idx = 0
+                for item in legacy_accounts:
+                    if idx >= max_slots:
+                        break
+                    if not isinstance(item, dict):
+                        continue
+                    account_id = str(item.get("id", "")).strip()
+                    account_pw = str(item.get("pw", "")).strip()
+                    if not account_id or not account_pw:
+                        continue
+                    slots[idx] = {"id": account_id, "pw": account_pw}
+                    idx += 1
+
+        has_any = any(s["id"] and s["pw"] for s in slots)
+        if not has_any:
+            legacy_id = str(self.config.get("naver_id", "")).strip()
+            legacy_pw = str(self.config.get("naver_pw", "")).strip()
+            if legacy_id and legacy_pw:
+                slots[0] = {"id": legacy_id, "pw": legacy_pw}
+        return slots
+
+    def _first_filled_slot(self, slots):
+        for i, slot in enumerate(slots):
+            if slot.get("id") and slot.get("pw"):
+                return i
+        return -1
+
+    def _get_active_naver_account_slot(self, slots):
+        try:
+            active_slot = int(self.config.get("active_naver_account_slot", 0))
+        except Exception:
+            active_slot = 0
+        if active_slot < 0 or active_slot >= len(slots):
+            active_slot = 0
+        if slots and slots[active_slot].get("id") and slots[active_slot].get("pw"):
+            return active_slot
+        first_filled = self._first_filled_slot(slots)
+        return first_filled if first_filled >= 0 else 0
+
+    def _apply_naver_accounts_to_ui(self, slots=None, active_slot=None):
+        if slots is None:
+            slots = self._get_naver_account_slots()
+        if active_slot is None:
+            active_slot = self._get_active_naver_account_slot(slots)
+
+        if active_slot < 0 or active_slot >= len(slots):
+            active_slot = 0
+
+        selected = slots[active_slot] if slots else {"id": "", "pw": ""}
+        if not selected.get("id") or not selected.get("pw"):
+            first_filled = self._first_filled_slot(slots)
+            selected = slots[first_filled] if first_filled >= 0 else {"id": "", "pw": ""}
+            active_slot = first_filled if first_filled >= 0 else 0
+
+        self.config["naver_account_slots"] = slots
+        self.config["active_naver_account_slot"] = active_slot
+
+        filled_accounts = []
+        for slot in slots:
+            account_id = str(slot.get("id", "")).strip()
+            account_pw = str(slot.get("pw", "")).strip()
+            if account_id and account_pw:
+                filled_accounts.append({"id": account_id, "pw": account_pw})
+        self.config["naver_accounts"] = filled_accounts
+
+        self.config["naver_id"] = str(selected.get("id", "")).strip()
+        self.config["naver_pw"] = str(selected.get("pw", "")).strip()
+
+        if hasattr(self, "naver_id_entry"):
+            self.naver_id_entry.setText(self.config["naver_id"])
+        if hasattr(self, "naver_pw_entry"):
+            self.naver_pw_entry.setText(self.config["naver_pw"])
+
+        if hasattr(self, "naver_account_count_label"):
+            count = len(filled_accounts)
+            self.naver_account_count_label.setText(f"등록 계정: {count}개")
+        if hasattr(self, "naver_account_active_label"):
+            if self.config["naver_id"]:
+                masked = self._mask_account_id(self.config["naver_id"])
+                self.naver_account_active_label.setText(f"현재 선택: 슬롯 {active_slot + 1} ({masked})")
+            else:
+                self.naver_account_active_label.setText("현재 선택: 없음")
+
+    def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
+        normalized = []
+        max_slots = NaverAccountsDialog.MAX_SLOTS
+        for i in range(max_slots):
+            item = slots[i] if i < len(slots) else {}
+            account_id = str(item.get("id", "")).strip() if isinstance(item, dict) else ""
+            account_pw = str(item.get("pw", "")).strip() if isinstance(item, dict) else ""
+            if account_id and not account_pw:
+                self._show_auto_close_message(f"⚠️ 슬롯 {i + 1}: 비밀번호를 입력해주세요", QMessageBox.Icon.Warning)
+                return False
+            if account_pw and not account_id:
+                self._show_auto_close_message(f"⚠️ 슬롯 {i + 1}: 아이디를 입력해주세요", QMessageBox.Icon.Warning)
+                return False
+            normalized.append({"id": account_id, "pw": account_pw})
+
+        first_filled = self._first_filled_slot(normalized)
+        if first_filled < 0:
+            self._show_auto_close_message("⚠️ 최소 1개 계정의 아이디/비밀번호를 입력해주세요", QMessageBox.Icon.Warning)
+            return False
+
+        try:
+            active_slot = int(active_slot)
+        except Exception:
+            active_slot = first_filled
+
+        if active_slot < 0 or active_slot >= max_slots:
+            active_slot = first_filled
+        if not normalized[active_slot].get("id") or not normalized[active_slot].get("pw"):
+            active_slot = first_filled
+
+        self._apply_naver_accounts_to_ui(normalized, active_slot)
+        self._update_settings_status("👤 네이버 계정 정보가 업데이트되었습니다")
+        self.save_config_file()
+        self.update_status_display()
+        self._update_settings_summary()
+        if show_message:
+            self._show_auto_close_message("✅ 네이버 계정 정보가 저장되었습니다", QMessageBox.Icon.Information)
+        return True
+
+    def open_naver_accounts_dialog(self):
+        dialog = NaverAccountsDialog(self)
+        if dialog.exec():
+            self._update_settings_status("✅ 네이버 계정 설정이 반영되었습니다.")
+
     def open_website_login_dialog(self):
         """웹사이트 로그인 정보 입력 다이얼로그 열기"""
         dialog = WebsiteLoginDialog(self)
@@ -8056,11 +8264,8 @@ class NaverBlogGUI(QMainWindow):
                 self.posting_search_radio.setChecked(True)
         self.posting_method = "home" if posting_method == "home" else "search"
 
-        # 로그인 정보
-        if "naver_id" in self.config:
-            self.naver_id_entry.setText(self.config["naver_id"])
-        if "naver_pw" in self.config:
-            self.naver_pw_entry.setText(self.config["naver_pw"])
+        # 로그인 정보 (다중 계정 슬롯 + 단일 계정 호환)
+        self._apply_naver_accounts_to_ui()
         
         # 발행 간격
         if "interval" in self.config:
@@ -8540,12 +8745,16 @@ class NaverBlogGUI(QMainWindow):
 
     def toggle_password(self):
         """비밀번호 표시/숨김"""
+        if not hasattr(self, "naver_pw_entry"):
+            return
         if self.naver_pw_entry.echoMode() == QLineEdit.EchoMode.Password:
             self.naver_pw_entry.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.pw_toggle_btn.setText("공개")
+            if hasattr(self, "pw_toggle_btn") and self.pw_toggle_btn:
+                self.pw_toggle_btn.setText("공개")
         else:
             self.naver_pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
-            self.pw_toggle_btn.setText("비공개")
+            if hasattr(self, "pw_toggle_btn") and self.pw_toggle_btn:
+                self.pw_toggle_btn.setText("비공개")
     
     def toggle_external_link(self):
         """외부 링크 활성화/비활성화"""
@@ -8951,21 +9160,8 @@ class NaverBlogGUI(QMainWindow):
         self._show_auto_close_message(f"✅ 포스팅 방법이 '{label}'로 저장되었습니다", QMessageBox.Icon.Information)
 
     def save_login_info(self):
-        """로그인 정보 저장"""
-        naver_id = self.naver_id_entry.text().strip()
-        naver_pw = self.naver_pw_entry.text().strip()
-        
-        if not naver_id or not naver_pw:
-            self._show_auto_close_message("⚠️ 아이디와 비밀번호를 모두 입력해주세요", QMessageBox.Icon.Warning)
-            return
-        
-        self.config["naver_id"] = naver_id
-        self.config["naver_pw"] = naver_pw
-        self._update_settings_status("👤 로그인 정보가 저장되었습니다")
-        self.save_config_file()
-        self.update_status_display()
-        self._update_settings_summary()
-        self._show_auto_close_message("✅ 로그인 정보가 저장되었습니다", QMessageBox.Icon.Information)
+        """로그인 정보 저장(다중 계정 관리창으로 이동)"""
+        self.open_naver_accounts_dialog()
     
     def save_time_settings(self):
         """발행 간격 저장"""
