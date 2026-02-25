@@ -6053,7 +6053,7 @@ class AccountFileBindingDialog(QDialog):
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
         self.setWindowTitle("계정별 파일 적용")
         self.setMinimumWidth(740)
-        self.resize(760, 280)
+        self.resize(760, 240)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6074,15 +6074,24 @@ class AccountFileBindingDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(8)
 
         slots = self.parent._get_naver_account_slots()
         self.account_rows = []
+        visible_row_count = 0
         for i, slot in enumerate(slots):
             account_id = str(slot.get("id", "")).strip()
             account_pw = str(slot.get("pw", "")).strip()
             if not account_id or not account_pw:
                 continue
+
+            if visible_row_count > 0:
+                line = QFrame()
+                line.setFrameShape(QFrame.Shape.HLine)
+                line.setFrameShadow(QFrame.Shadow.Plain)
+                line.setStyleSheet(f"QFrame {{ border: none; border-top: 1px solid {NAVER_BORDER}; margin: 0px; }}")
+                layout.addWidget(line)
 
             row = QHBoxLayout()
             row.setSpacing(8)
@@ -6109,6 +6118,7 @@ class AccountFileBindingDialog(QDialog):
 
             layout.addLayout(row)
             self.account_rows.append((account_id, path_label))
+            visible_row_count += 1
 
         if not self.account_rows:
             empty_label = QLabel("등록된 네이버 계정이 없습니다. 먼저 계정을 저장해주세요.")
