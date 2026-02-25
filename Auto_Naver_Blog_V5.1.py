@@ -5873,7 +5873,8 @@ class NaverAccountsDialog(QDialog):
             QPushButton {{
                 border: none;
                 border-radius: 8px;
-                padding: 10px 18px;
+                padding: 8px 16px;
+                font-size: 12px;
                 font-weight: bold;
                 color: white;
             }}
