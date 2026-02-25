@@ -5752,8 +5752,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QLineEdit, QTextEdit, QRadioButton, QCheckBox,
                               QComboBox, QGroupBox, QTabWidget, QMessageBox,
                               QListView, QButtonGroup, QDialog,
-                               QFrame, QScrollArea, QStackedWidget,
-                              QSizePolicy, QSplashScreen)
+                                QFrame, QScrollArea, QStackedWidget,
+                              QSizePolicy, QSplashScreen, QFileDialog)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QEvent
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter
 
@@ -6042,6 +6042,112 @@ class NaverAccountsDialog(QDialog):
         active_slot = int(self.initial_active_slot)
         if self.parent.save_naver_accounts_from_slots(slots, active_slot, show_message=True):
             self.accept()
+
+
+class AccountFileBindingDialog(QDialog):
+    """계정별 키워드/썸네일 파일 매핑 다이얼로그"""
+
+    def __init__(self, parent=None, mode="keywords"):
+        super().__init__(parent)
+        self.parent = parent
+        self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
+        self.setWindowTitle("계정별 파일 적용")
+        self.setMinimumWidth(900)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {NAVER_BG};
+            }}
+            QLabel {{
+                color: {NAVER_TEXT};
+                font-size: 13px;
+            }}
+            QPushButton {{
+                border: none;
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: bold;
+                color: white;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일/폴더를 계정별로 적용합니다."
+        title_label = QLabel(title_text)
+        title_label.setStyleSheet(f"font-weight: bold; color: {NAVER_TEXT};")
+        layout.addWidget(title_label)
+
+        slots = self.parent._get_naver_account_slots()
+        self.account_rows = []
+        for i, slot in enumerate(slots):
+            account_id = str(slot.get("id", "")).strip()
+            account_pw = str(slot.get("pw", "")).strip()
+            if not account_id or not account_pw:
+                continue
+
+            row = QHBoxLayout()
+            row.setSpacing(8)
+
+            account_label = QLabel(f"계정 {i + 1}: {account_id}")
+            account_label.setMinimumWidth(220)
+            account_label.setStyleSheet("font-weight: bold;")
+            row.addWidget(account_label)
+
+            path_label = QLabel(self.parent._account_binding_preview_path(account_id, self.mode))
+            path_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+            path_label.setWordWrap(True)
+            row.addWidget(path_label, 1)
+
+            pick_btn = QPushButton("선택")
+            pick_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+            pick_btn.clicked.connect(lambda _, aid=account_id, pl=path_label: self._pick_for_account(aid, pl))
+            row.addWidget(pick_btn)
+
+            open_btn = QPushButton("열기")
+            open_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
+            open_btn.clicked.connect(lambda _, aid=account_id: self.parent._open_account_binding_target(aid, self.mode))
+            row.addWidget(open_btn)
+
+            layout.addLayout(row)
+            self.account_rows.append((account_id, path_label))
+
+        if not self.account_rows:
+            empty_label = QLabel("등록된 네이버 계정이 없습니다. 먼저 계정을 저장해주세요.")
+            empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
+            layout.addWidget(empty_label)
+
+        guide = QLabel("선택한 파일은 해당 계정 전용 폴더로 복사되어 연결됩니다.")
+        guide.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        layout.addWidget(guide)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        close_btn = QPushButton("닫기")
+        close_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        close_btn.clicked.connect(self.accept)
+        buttons.addWidget(close_btn)
+        layout.addLayout(buttons)
+
+    def _pick_for_account(self, account_id, path_label):
+        if self.mode == "keywords":
+            selected, _ = QFileDialog.getOpenFileName(
+                self, "키워드 파일 선택", self.parent.data_dir, "Text Files (*.txt);;All Files (*)"
+            )
+            if not selected:
+                return
+            if self.parent._apply_keywords_file_to_account(account_id, selected):
+                path_label.setText(self.parent._account_binding_preview_path(account_id, self.mode))
+        else:
+            selected = QFileDialog.getExistingDirectory(
+                self, "썸네일 폴더 선택", self.parent.data_dir
+            )
+            if not selected:
+                return
+            if self.parent._apply_thumbnail_dir_to_account(account_id, selected):
+                path_label.setText(self.parent._account_binding_preview_path(account_id, self.mode))
 
 
 class NaverBlogGUI(QMainWindow):
@@ -7793,7 +7899,7 @@ class NaverBlogGUI(QMainWindow):
                 background-color: #0066E6;
             }}
         """)
-        keyword_open_btn.clicked.connect(lambda: self.open_file("keywords.txt"))
+        keyword_open_btn.clicked.connect(lambda: self.open_account_file_binding_dialog("keywords"))
         keyword_layout.addWidget(keyword_open_btn)
         
         file_grid.addWidget(keyword_widget, 0, 0)
@@ -7861,7 +7967,7 @@ class NaverBlogGUI(QMainWindow):
                 background-color: #0066E6;
             }}
         """)
-        thumbnail_open_btn.clicked.connect(lambda: self.open_file("setting/image"))
+        thumbnail_open_btn.clicked.connect(lambda: self.open_account_file_binding_dialog("thumbnail"))
         thumbnail_layout.addWidget(thumbnail_open_btn)
         
         file_grid.addWidget(thumbnail_widget, 1, 0)
@@ -8325,6 +8431,76 @@ class NaverBlogGUI(QMainWindow):
     def _selected_thumbnail_dir(self, create=True):
         account_id = self._selected_naver_account_id()
         return _resolve_account_thumbnail_dir(self.data_dir, account_id, create=create)
+
+    def _account_binding_preview_path(self, account_id, mode):
+        if mode == "keywords":
+            target, _ = _resolve_account_keyword_paths(self.data_dir, account_id, create=True)
+            return target
+        return _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
+
+    def _open_account_binding_target(self, account_id, mode):
+        import subprocess
+        import platform
+
+        target_path = self._account_binding_preview_path(account_id, mode)
+        open_path = target_path if mode == "thumbnail" else os.path.dirname(target_path)
+        os.makedirs(open_path, exist_ok=True)
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(f'explorer "{os.path.abspath(open_path)}"')
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", open_path])
+            else:
+                subprocess.run(["xdg-open", open_path])
+        except Exception as e:
+            self._update_settings_status(f"❌ 경로 열기 실패: {str(e)}")
+
+    def _apply_keywords_file_to_account(self, account_id, source_file):
+        import shutil
+
+        try:
+            target_file, used_file = _resolve_account_keyword_paths(self.data_dir, account_id, create=True)
+            shutil.copy2(source_file, target_file)
+            # 새 키워드 파일로 교체 시 used 키워드 파일은 초기화
+            with open(used_file, "w", encoding="utf-8"):
+                pass
+            self._update_settings_status(f"✅ 계정({account_id}) 키워드 파일 적용 완료")
+            self.update_status_display()
+            return True
+        except Exception as e:
+            self._show_auto_close_message(f"❌ 키워드 파일 적용 실패: {str(e)}", QMessageBox.Icon.Warning)
+            return False
+
+    def _apply_thumbnail_dir_to_account(self, account_id, source_dir):
+        import shutil
+
+        try:
+            target_dir = _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
+            copied = 0
+            for name in os.listdir(source_dir):
+                lower = name.lower()
+                if not lower.endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc")):
+                    continue
+                src = os.path.join(source_dir, name)
+                dst = os.path.join(target_dir, name)
+                if os.path.isfile(src):
+                    shutil.copy2(src, dst)
+                    copied += 1
+            if copied <= 0:
+                self._show_auto_close_message("⚠️ 선택한 폴더에 적용 가능한 JPG/폰트 파일이 없습니다.", QMessageBox.Icon.Warning)
+                return False
+            self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 {copied}개 적용 완료")
+            self.update_status_display()
+            return True
+        except Exception as e:
+            self._show_auto_close_message(f"❌ 썸네일 파일 적용 실패: {str(e)}", QMessageBox.Icon.Warning)
+            return False
+
+    def open_account_file_binding_dialog(self, mode):
+        dialog = AccountFileBindingDialog(self, mode=mode)
+        if dialog.exec():
+            self._update_settings_status("✅ 계정별 파일 적용 설정이 반영되었습니다.")
+            self.update_status_display()
 
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
         normalized = []
