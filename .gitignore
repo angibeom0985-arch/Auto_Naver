@@ -4,6 +4,7 @@ dist/setting/etc/config.json
 setting/etc/chrome_profile/
 dist/setting/etc/chrome_profile/
 setting/etc/chrome_profile_temp_*/
+setting/accounts/
 
 # Common cache/build artifacts
 __pycache__/

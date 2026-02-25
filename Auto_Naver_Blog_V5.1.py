@@ -7187,6 +7187,24 @@ class NaverBlogGUI(QMainWindow):
         self.naver_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
         self.naver_account_count_label.setWordWrap(False)
         summary_row.addWidget(self.naver_account_count_label)
+
+        self.naver_account_selector = QComboBox()
+        self.naver_account_selector.setMinimumWidth(190)
+        self.naver_account_selector.setStyleSheet(f"""
+            QComboBox {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 4px 8px;
+                background-color: white;
+                color: {NAVER_TEXT};
+                font-size: 12px;
+            }}
+            QComboBox:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+        """)
+        self.naver_account_selector.currentIndexChanged.connect(self.on_naver_account_selector_changed)
+        summary_row.addWidget(self.naver_account_selector)
         summary_row.addStretch()
 
         add_account_btn = QPushButton("＋ 계정 추가하기")
@@ -8245,6 +8263,38 @@ class NaverBlogGUI(QMainWindow):
         if hasattr(self, "naver_account_count_label"):
             count = len(filled_accounts)
             self.naver_account_count_label.setText(f"등록 계정: {count}개")
+
+        if hasattr(self, "naver_account_selector"):
+            self.naver_account_selector.blockSignals(True)
+            self.naver_account_selector.clear()
+            for i, slot in enumerate(slots):
+                account_id = str(slot.get("id", "")).strip()
+                account_pw = str(slot.get("pw", "")).strip()
+                if account_id and account_pw:
+                    label = f"계정 {i + 1}: {account_id}"
+                else:
+                    label = f"계정 {i + 1}: 미설정"
+                self.naver_account_selector.addItem(label, i)
+            if self.naver_account_selector.count() > 0:
+                self.naver_account_selector.setCurrentIndex(active_slot)
+            self.naver_account_selector.blockSignals(False)
+
+    def on_naver_account_selector_changed(self, index):
+        try:
+            index = int(index)
+        except Exception:
+            return
+        slots = self._get_naver_account_slots()
+        if index < 0 or index >= len(slots):
+            return
+        selected = slots[index]
+        if not selected.get("id") or not selected.get("pw"):
+            return
+        self._apply_naver_accounts_to_ui(slots, index)
+        self.save_config_file()
+        self.update_status_display()
+        self._update_settings_summary()
+        self._update_settings_status(f"👤 작업 계정이 계정 {index + 1}로 변경되었습니다")
 
     def _selected_naver_account_id(self):
         account_id = ""
