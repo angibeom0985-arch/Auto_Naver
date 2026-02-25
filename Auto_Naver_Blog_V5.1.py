@@ -6143,8 +6143,13 @@ class AccountFileBindingDialog(QDialog):
             )
             if not selected:
                 return
-            if self.parent._apply_thumbnail_dir_to_account(account_id, selected):
-                path_label.setText(self.parent._account_binding_display_name(account_id, self.mode))
+            applied = 0
+            for target_account_id, target_label in self.account_rows:
+                if self.parent._apply_thumbnail_dir_to_account(target_account_id, selected):
+                    target_label.setText(self.parent._account_binding_display_name(target_account_id, self.mode))
+                    applied += 1
+            if applied > 0:
+                self.parent._update_settings_status(f"✅ 썸네일이 {applied}개 계정에 동일 적용되었습니다.")
 
 
 class NaverBlogGUI(QMainWindow):
