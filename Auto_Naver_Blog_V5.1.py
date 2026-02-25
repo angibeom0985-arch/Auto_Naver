@@ -2657,6 +2657,7 @@ class NaverBlogAutomation:
                 # "전체보기" 링크 클릭하여 전체 글 목록으로 이동
                 try:
                     category_all_selectors = [
+                        "li.allview a#category0",
                         "a#category0",  # ID로 찾기
                         "a[href*='categoryNo=0'][href*='PostList.naver']",  # 전체보기 URL 패턴
                         "a.on[href*='categoryNo=0']",  # 활성화된 전체보기
@@ -2681,40 +2682,75 @@ class NaverBlogAutomation:
                 except Exception as e:
                     self._update_status(f"ℹ️ 전체보기 클릭 실패: {str(e)[:30]}")
 
-                # 전체보기 목록 테이블에서 최신글 링크 찾기
-                post_selectors = [
-                    "a.pcol2._setTop._setTopListUrl",  # 전체보기 테이블 내 글 링크
-                    "table.blog2_list.blog2_categorylist a.pcol2._setTop",  # 테이블 내 링크
-                    "table.blog2_list a[href*='PostView.naver']",  # 테이블 내 PostView 링크
-                    "a._setTopListUrl",  # _setTopListUrl 클래스
-                    "a.pcol2[href*='PostView.naver'][href*='categoryNo=0']",  # categoryNo=0 포함
-                ]
-                
                 post_elements = []
                 seen_urls = set()
-                for selector in post_selectors:
-                    if len(post_elements) >= 6:
-                        break
+
+                # 요청 스펙 우선:
+                # 1) 목록 닫힘 상태면 "목록열기" 버튼 클릭
+                # 2) tbody의 최신 글 링크(_setTopListUrl) 상단 3개 수집
+                try:
                     try:
-                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                        if elements:
-                            # self._update_status(f"🔍 셀렉터 '{selector}'로 {len(elements)}개 발견")
-                            for el in elements:
-                                href = el.get_attribute("href")
-                                if not href or href in seen_urls:
-                                    continue
-                                # PostView.naver 링크만 허용
-                                if "PostView.naver" not in href and "postView.naver" not in href:
-                                    continue
-                                if blog_id and blog_id not in href and "blogId=" not in href:
-                                    continue
-                                seen_urls.add(href)
-                                post_elements.append(el)
-                                if len(post_elements) >= 6:
-                                    break
-                    except Exception as e:
-                        self._update_status(f"⚠️ 셀렉터 '{selector}' 실패: {str(e)[:30]}")
-                        continue
+                        open_btn = self.driver.find_element(By.CSS_SELECTOR, "a.btn_openlist._toggleTopList")
+                        open_state = (open_btn.text or "").strip()
+                        if ("목록열기" in open_state) or ("열기" in open_state):
+                            self.driver.execute_script("arguments[0].click();", open_btn)
+                            time.sleep(1.2)
+                    except Exception:
+                        pass
+
+                    WebDriverWait(self.driver, 8).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr td.title a._setTopListUrl"))
+                    )
+
+                    strict_links = self.driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "tbody tr td.title a._setTop._setTopListUrl, tbody tr td.title a._setTopListUrl",
+                    )
+                    for el in strict_links:
+                        if len(post_elements) >= 6:
+                            break
+                        href = (el.get_attribute("href") or "").strip()
+                        title = (el.text or el.get_attribute("textContent") or "").strip()
+                        if not href or href in seen_urls:
+                            continue
+                        if "postview.naver" not in href.lower():
+                            continue
+                        if not title:
+                            continue
+                        seen_urls.add(href)
+                        post_elements.append(el)
+                except Exception:
+                    pass
+
+                # 폴백: 기존 광범위 탐색
+                if not post_elements:
+                    post_selectors = [
+                        "a.pcol2._setTop._setTopListUrl",
+                        "table.blog2_list.blog2_categorylist a.pcol2._setTop",
+                        "table.blog2_list a[href*='PostView.naver']",
+                        "a._setTopListUrl",
+                        "a.pcol2[href*='PostView.naver'][href*='categoryNo=0']",
+                    ]
+                    for selector in post_selectors:
+                        if len(post_elements) >= 6:
+                            break
+                        try:
+                            elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                            if elements:
+                                for el in elements:
+                                    href = el.get_attribute("href")
+                                    if not href or href in seen_urls:
+                                        continue
+                                    if "PostView.naver" not in href and "postView.naver" not in href:
+                                        continue
+                                    if blog_id and blog_id not in href and "blogId=" not in href:
+                                        continue
+                                    seen_urls.add(href)
+                                    post_elements.append(el)
+                                    if len(post_elements) >= 6:
+                                        break
+                        except Exception:
+                            continue
                 
                 if not post_elements:
                     try:
