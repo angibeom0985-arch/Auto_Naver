@@ -5720,7 +5720,7 @@ class PremiumCard(QFrame):
                 padding: 6px 12px;
             }}
         """)
-        self.header.setFixedHeight(54)
+        self.header.setMinimumHeight(56)
         self.header_layout = QHBoxLayout(self.header)
         self.header_layout.setContentsMargins(0, 0, 0, 0)
         self.header_layout.setSpacing(10)
@@ -5735,7 +5735,7 @@ class PremiumCard(QFrame):
             border-radius: 8px;
             padding: 6px 14px;
         """)
-        title_label.setFixedHeight(36)
+        title_label.setMinimumHeight(38)
         title_label.setMinimumWidth(0) # 최소 너비 해제
         title_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.header_layout.addWidget(title_label)
@@ -7065,7 +7065,7 @@ class NaverBlogGUI(QMainWindow):
             font-weight: bold;
             border: none;
         """)
-        warning_label.setFixedHeight(36)
+        warning_label.setMinimumHeight(38)
         login_card.header.layout().addWidget(warning_label)
         
         login_card.content_layout.addStretch()
@@ -7094,11 +7094,13 @@ class NaverBlogGUI(QMainWindow):
         self.naver_account_count_label = QLabel("등록 계정: 0개")
         self.naver_account_count_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
         self.naver_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+        self.naver_account_count_label.setWordWrap(True)
         summary_layout.addWidget(self.naver_account_count_label)
 
         self.naver_account_active_label = QLabel("현재 선택: 없음")
         self.naver_account_active_label.setFont(QFont(self.font_family, 12))
         self.naver_account_active_label.setStyleSheet(f"color: {NAVER_TEXT_SUB}; border: none;")
+        self.naver_account_active_label.setWordWrap(True)
         summary_layout.addWidget(self.naver_account_active_label)
 
         login_card.content_layout.addWidget(summary_box)
