@@ -6128,7 +6128,7 @@ class AccountFileBindingDialog(QDialog):
             empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
             layout.addWidget(empty_label)
 
-        title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일/폴더를 계정별로 적용합니다."
+        title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일을 계정별로 적용합니다."
         title_label = QLabel(title_text)
         title_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
         layout.addWidget(title_label)
@@ -6158,14 +6158,14 @@ class AccountFileBindingDialog(QDialog):
             if self.parent._apply_keywords_file_to_account(account_id, selected):
                 path_label.setText(self.parent._account_binding_display_name(account_id, self.mode))
         else:
-            selected = QFileDialog.getExistingDirectory(
-                self, "썸네일 폴더 선택", self.parent.data_dir
+            selected, _ = QFileDialog.getOpenFileName(
+                self, "썸네일 파일 선택", self.parent.data_dir, "Image Files (*.jpg *.jpeg);;All Files (*)"
             )
             if not selected:
                 return
             applied = 0
             for target_account_id, target_label in self.account_rows:
-                if self.parent._apply_thumbnail_dir_to_account(target_account_id, selected):
+                if self.parent._apply_thumbnail_file_to_account(target_account_id, selected):
                     target_label.setText(self.parent._account_binding_display_name(target_account_id, self.mode))
                     applied += 1
             if applied > 0:
@@ -8483,6 +8483,18 @@ class NaverBlogGUI(QMainWindow):
 
     def _account_binding_display_name(self, account_id, mode):
         path = self._account_binding_preview_path(account_id, mode)
+        if mode == "thumbnail":
+            try:
+                if os.path.isdir(path):
+                    candidates = [
+                        n for n in os.listdir(path)
+                        if n.lower().endswith((".jpg", ".jpeg"))
+                    ]
+                    if candidates:
+                        candidates.sort(key=lambda n: os.path.getmtime(os.path.join(path, n)), reverse=True)
+                        return candidates[0]
+            except Exception:
+                pass
         name = os.path.basename(path.rstrip("\\/"))
         return name or path
 
@@ -8519,25 +8531,30 @@ class NaverBlogGUI(QMainWindow):
             self._show_auto_close_message(f"❌ 키워드 파일 적용 실패: {str(e)}", QMessageBox.Icon.Warning)
             return False
 
-    def _apply_thumbnail_dir_to_account(self, account_id, source_dir):
+    def _apply_thumbnail_file_to_account(self, account_id, source_file):
         import shutil
 
         try:
             target_dir = _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
-            copied = 0
-            for name in os.listdir(source_dir):
-                lower = name.lower()
-                if not lower.endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc")):
-                    continue
-                src = os.path.join(source_dir, name)
-                dst = os.path.join(target_dir, name)
-                if os.path.isfile(src):
-                    shutil.copy2(src, dst)
-                    copied += 1
-            if copied <= 0:
-                self._show_auto_close_message("⚠️ 선택한 폴더에 적용 가능한 JPG/폰트 파일이 없습니다.", QMessageBox.Icon.Warning)
+            if not os.path.isfile(source_file):
+                self._show_auto_close_message("⚠️ 선택한 썸네일 파일을 찾을 수 없습니다.", QMessageBox.Icon.Warning)
                 return False
-            self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 {copied}개 적용 완료")
+            lower = source_file.lower()
+            if not lower.endswith((".jpg", ".jpeg")):
+                self._show_auto_close_message("⚠️ JPG/JPEG 파일만 선택할 수 있습니다.", QMessageBox.Icon.Warning)
+                return False
+
+            # 계정별 썸네일은 1개 기준으로 관리: 기존 jpg는 정리하고 새 파일만 유지
+            for name in os.listdir(target_dir):
+                if name.lower().endswith((".jpg", ".jpeg")):
+                    try:
+                        os.remove(os.path.join(target_dir, name))
+                    except Exception:
+                        pass
+
+            target_name = os.path.basename(source_file)
+            shutil.copy2(source_file, os.path.join(target_dir, target_name))
+            self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 적용 완료: {target_name}")
             self.update_status_display()
             return True
         except Exception as e:
