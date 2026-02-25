@@ -5847,7 +5847,7 @@ class WebsiteLoginDialog(QDialog):
 
 class NaverAccountsDialog(QDialog):
     """네이버 계정 다중 등록 다이얼로그"""
-    MAX_SLOTS = 5
+    MAX_SLOTS = 3
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -5926,10 +5926,10 @@ class NaverAccountsDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        save_btn = QPushButton("💾 저장")
+        save_btn = QPushButton("저장")
         save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
         save_btn.clicked.connect(self.save_and_close)
-        cancel_btn = QPushButton("❌ 취소")
+        cancel_btn = QPushButton("취소")
         cancel_btn.setStyleSheet(f"background-color: {NAVER_RED};")
         cancel_btn.clicked.connect(self.reject)
         buttons.addWidget(save_btn)
