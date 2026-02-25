@@ -5883,21 +5883,14 @@ class NaverAccountsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
-        top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("기본 사용 계정 슬롯:"))
-        self.active_slot_combo = QComboBox()
-        for i in range(self.MAX_SLOTS):
-            self.active_slot_combo.addItem(f"계정 슬롯 {i + 1}", i)
-        top_row.addWidget(self.active_slot_combo, 1)
-        layout.addLayout(top_row)
-
         self.slot_inputs = []
         slots = self.parent._get_naver_account_slots()
+        self.initial_active_slot = self.parent._get_active_naver_account_slot(slots)
         for i in range(self.MAX_SLOTS):
             row = QHBoxLayout()
             row.setSpacing(8)
 
-            slot_label = QLabel(f"슬롯 {i + 1}")
+            slot_label = QLabel(f"계정 {i + 1}")
             slot_label.setFixedWidth(58)
             row.addWidget(slot_label)
 
@@ -5912,18 +5905,21 @@ class NaverAccountsDialog(QDialog):
             pw_entry.setText(str(slots[i].get("pw", "")))
             row.addWidget(pw_entry, 1)
 
-            clear_btn = QPushButton("비우기")
-            clear_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
-            clear_btn.clicked.connect(lambda _, e1=id_entry, e2=pw_entry: self._clear_slot(e1, e2))
+            toggle_btn = QPushButton("비공개")
+            toggle_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
+            toggle_btn.setMinimumWidth(72)
+            toggle_btn.clicked.connect(lambda _, e=pw_entry, b=toggle_btn: self._toggle_password_visibility(e, b))
+            row.addWidget(toggle_btn)
+
+            clear_btn = QPushButton("삭제")
+            clear_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+            clear_btn.clicked.connect(lambda _, e1=id_entry, e2=pw_entry, b=toggle_btn: self._clear_account_row(e1, e2, b))
             row.addWidget(clear_btn)
 
             layout.addLayout(row)
-            self.slot_inputs.append((id_entry, pw_entry))
+            self.slot_inputs.append((id_entry, pw_entry, toggle_btn))
 
-        active_slot = self.parent._get_active_naver_account_slot(slots)
-        self.active_slot_combo.setCurrentIndex(active_slot)
-
-        guide = QLabel("빈 슬롯은 저장되지 않습니다. 기본 사용 슬롯이 비어 있으면 자동으로 첫 등록 계정이 선택됩니다.")
+        guide = QLabel("빈 계정 항목은 저장되지 않습니다.")
         guide.setWordWrap(True)
         guide.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
         layout.addWidget(guide)
@@ -5940,19 +5936,29 @@ class NaverAccountsDialog(QDialog):
         buttons.addWidget(cancel_btn)
         layout.addLayout(buttons)
 
-    def _clear_slot(self, id_entry, pw_entry):
+    def _clear_account_row(self, id_entry, pw_entry, toggle_btn):
         id_entry.clear()
         pw_entry.clear()
+        pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        toggle_btn.setText("비공개")
+
+    def _toggle_password_visibility(self, pw_entry, toggle_btn):
+        if pw_entry.echoMode() == QLineEdit.EchoMode.Password:
+            pw_entry.setEchoMode(QLineEdit.EchoMode.Normal)
+            toggle_btn.setText("공개")
+        else:
+            pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
+            toggle_btn.setText("비공개")
 
     def save_and_close(self):
         slots = []
-        for id_entry, pw_entry in self.slot_inputs:
+        for id_entry, pw_entry, _ in self.slot_inputs:
             slots.append({
                 "id": id_entry.text().strip(),
                 "pw": pw_entry.text().strip(),
             })
 
-        active_slot = int(self.active_slot_combo.currentData())
+        active_slot = int(self.initial_active_slot)
         if self.parent.save_naver_accounts_from_slots(slots, active_slot, show_message=True):
             self.accept()
 
@@ -8167,10 +8173,10 @@ class NaverBlogGUI(QMainWindow):
             account_id = str(item.get("id", "")).strip() if isinstance(item, dict) else ""
             account_pw = str(item.get("pw", "")).strip() if isinstance(item, dict) else ""
             if account_id and not account_pw:
-                self._show_auto_close_message(f"⚠️ 슬롯 {i + 1}: 비밀번호를 입력해주세요", QMessageBox.Icon.Warning)
+                self._show_auto_close_message(f"⚠️ 계정 {i + 1}: 비밀번호를 입력해주세요", QMessageBox.Icon.Warning)
                 return False
             if account_pw and not account_id:
-                self._show_auto_close_message(f"⚠️ 슬롯 {i + 1}: 아이디를 입력해주세요", QMessageBox.Icon.Warning)
+                self._show_auto_close_message(f"⚠️ 계정 {i + 1}: 아이디를 입력해주세요", QMessageBox.Icon.Warning)
                 return False
             normalized.append({"id": account_id, "pw": account_pw})
 
