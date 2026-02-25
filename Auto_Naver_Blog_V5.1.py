@@ -6052,7 +6052,7 @@ class AccountFileBindingDialog(QDialog):
         self.parent = parent
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
         self.setWindowTitle("계정별 파일 적용")
-        self.setFixedWidth(760)
+        self.setFixedWidth(660)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6098,7 +6098,7 @@ class AccountFileBindingDialog(QDialog):
             row.setSpacing(6)
 
             account_label = QLabel(f"계정 {i + 1}: {account_id}")
-            account_label.setMinimumWidth(200)
+            account_label.setMinimumWidth(150)
             account_label.setStyleSheet("font-weight: bold;")
             row.addWidget(account_label)
 
