@@ -6075,7 +6075,7 @@ class AccountFileBindingDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(18, 10, 18, 10)
         layout.setSpacing(4)
 
         slots = self.parent._get_naver_account_slots()
@@ -6096,7 +6096,7 @@ class AccountFileBindingDialog(QDialog):
                 }}
             """)
             row = QHBoxLayout(row_frame)
-            row.setContentsMargins(6, 4, 6, 4)
+            row.setContentsMargins(8, 5, 8, 5)
             row.setSpacing(6)
 
             account_label = QLabel(f"계정 {i + 1}: {account_id}")
@@ -6130,19 +6130,27 @@ class AccountFileBindingDialog(QDialog):
             empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
             layout.addWidget(empty_label)
 
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 6, 0, 0)
+        footer.setSpacing(8)
         title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일을 계정별로 적용합니다."
         title_label = QLabel(title_text)
         title_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
-        layout.addWidget(title_label)
+        footer.addWidget(title_label)
+        footer.addStretch()
 
-        buttons = QHBoxLayout()
-        buttons.addStretch()
         save_btn = QPushButton("저장")
         save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
         save_btn.setFixedHeight(36)
         save_btn.clicked.connect(self.save_and_close)
-        buttons.addWidget(save_btn)
-        layout.addLayout(buttons)
+        footer.addWidget(save_btn)
+
+        close_btn = QPushButton("닫기")
+        close_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
+        close_btn.setFixedHeight(36)
+        close_btn.clicked.connect(self.reject)
+        footer.addWidget(close_btn)
+        layout.addLayout(footer)
 
         # 계정 수에 맞춰 다이얼로그 높이를 강제 축소해 불필요 여백 제거
         row_count = max(visible_row_count, 1)
