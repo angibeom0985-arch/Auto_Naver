@@ -6096,18 +6096,20 @@ class AccountFileBindingDialog(QDialog):
                 }}
             """)
             row = QHBoxLayout(row_frame)
-            row.setContentsMargins(8, 5, 8, 5)
+            row.setContentsMargins(12, 5, 8, 5)
             row.setSpacing(6)
 
             account_label = QLabel(f"계정 {i + 1}: {account_id}")
             account_label.setMinimumWidth(150)
-            account_label.setStyleSheet("font-weight: bold;")
+            account_label.setStyleSheet("font-weight: bold; padding-left: 4px;")
             row.addWidget(account_label)
 
             path_label = QLabel(self.parent._account_binding_display_name(account_id, self.mode))
             path_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+            path_label.setFixedWidth(300)
+            path_label.setContentsMargins(4, 0, 0, 0)
             path_label.setWordWrap(True)
-            row.addWidget(path_label, 1)
+            row.addWidget(path_label, 0)
 
             pick_btn = QPushButton("선택")
             pick_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
@@ -6155,16 +6157,20 @@ class AccountFileBindingDialog(QDialog):
 
     def _pick_for_account(self, account_id, path_label):
         if self.mode == "keywords":
+            initial_dir = os.path.join(self.parent.data_dir, "setting", "keywords")
+            os.makedirs(initial_dir, exist_ok=True)
             selected, _ = QFileDialog.getOpenFileName(
-                self, "키워드 파일 선택", self.parent.data_dir, "Text Files (*.txt);;All Files (*)"
+                self, "키워드 파일 선택", initial_dir, "Text Files (*.txt);;All Files (*)"
             )
             if not selected:
                 return
             self.pending_keyword_files[account_id] = selected
             path_label.setText(os.path.basename(selected))
         else:
+            initial_dir = os.path.join(self.parent.data_dir, "setting", "image")
+            os.makedirs(initial_dir, exist_ok=True)
             selected, _ = QFileDialog.getOpenFileName(
-                self, "썸네일 파일 선택", self.parent.data_dir, "Image Files (*.jpg *.jpeg);;All Files (*)"
+                self, "썸네일 파일 선택", initial_dir, "Image Files (*.jpg *.jpeg);;All Files (*)"
             )
             if not selected:
                 return
