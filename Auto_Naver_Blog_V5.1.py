@@ -6051,6 +6051,8 @@ class AccountFileBindingDialog(QDialog):
         super().__init__(parent)
         self.parent = parent
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
+        self.pending_keyword_files = {}
+        self.pending_thumbnail_file = ""
         self.setWindowTitle("계정별 파일 적용")
         self.setFixedWidth(660)
 
@@ -6135,11 +6137,11 @@ class AccountFileBindingDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        close_btn = QPushButton("닫기")
-        close_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
-        close_btn.setFixedHeight(36)
-        close_btn.clicked.connect(self.accept)
-        buttons.addWidget(close_btn)
+        save_btn = QPushButton("저장")
+        save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.setFixedHeight(36)
+        save_btn.clicked.connect(self.save_and_close)
+        buttons.addWidget(save_btn)
         layout.addLayout(buttons)
 
         # 계정 수에 맞춰 다이얼로그 높이를 강제 축소해 불필요 여백 제거
@@ -6155,21 +6157,47 @@ class AccountFileBindingDialog(QDialog):
             )
             if not selected:
                 return
-            if self.parent._apply_keywords_file_to_account(account_id, selected):
-                path_label.setText(self.parent._account_binding_display_name(account_id, self.mode))
+            self.pending_keyword_files[account_id] = selected
+            path_label.setText(os.path.basename(selected))
         else:
             selected, _ = QFileDialog.getOpenFileName(
                 self, "썸네일 파일 선택", self.parent.data_dir, "Image Files (*.jpg *.jpeg);;All Files (*)"
             )
             if not selected:
                 return
+            self.pending_thumbnail_file = selected
+            picked_name = os.path.basename(selected)
+            for _, target_label in self.account_rows:
+                target_label.setText(picked_name)
+
+    def save_and_close(self):
+        if self.mode == "keywords":
+            if not self.pending_keyword_files:
+                self.parent._show_auto_close_message("⚠️ 저장할 키워드 파일을 먼저 선택해주세요.", QMessageBox.Icon.Warning)
+                return
             applied = 0
-            for target_account_id, target_label in self.account_rows:
-                if self.parent._apply_thumbnail_file_to_account(target_account_id, selected):
-                    target_label.setText(self.parent._account_binding_display_name(target_account_id, self.mode))
+            for account_id, source_file in self.pending_keyword_files.items():
+                if self.parent._apply_keywords_file_to_account(account_id, source_file):
                     applied += 1
             if applied > 0:
-                self.parent._update_settings_status(f"✅ 썸네일이 {applied}개 계정에 동일 적용되었습니다.")
+                self.parent._update_settings_status(f"✅ 키워드 파일이 {applied}개 계정에 저장되었습니다.")
+                self.accept()
+                return
+            self.parent._show_auto_close_message("❌ 키워드 파일 저장에 실패했습니다.", QMessageBox.Icon.Warning)
+            return
+
+        if not self.pending_thumbnail_file:
+            self.parent._show_auto_close_message("⚠️ 저장할 썸네일 파일을 먼저 선택해주세요.", QMessageBox.Icon.Warning)
+            return
+        applied = 0
+        for account_id, _ in self.account_rows:
+            if self.parent._apply_thumbnail_file_to_account(account_id, self.pending_thumbnail_file):
+                applied += 1
+        if applied > 0:
+            self.parent._update_settings_status(f"✅ 썸네일 파일이 {applied}개 계정에 저장되었습니다.")
+            self.accept()
+            return
+        self.parent._show_auto_close_message("❌ 썸네일 파일 저장에 실패했습니다.", QMessageBox.Icon.Warning)
 
 
 class NaverBlogGUI(QMainWindow):
