@@ -6052,8 +6052,7 @@ class AccountFileBindingDialog(QDialog):
         self.parent = parent
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
         self.setWindowTitle("계정별 파일 적용")
-        self.setMinimumWidth(740)
-        self.resize(760, 240)
+        self.setFixedWidth(760)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6074,8 +6073,8 @@ class AccountFileBindingDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
 
         slots = self.parent._get_naver_account_slots()
         self.account_rows = []
@@ -6086,14 +6085,16 @@ class AccountFileBindingDialog(QDialog):
             if not account_id or not account_pw:
                 continue
 
-            if visible_row_count > 0:
-                line = QFrame()
-                line.setFrameShape(QFrame.Shape.HLine)
-                line.setFrameShadow(QFrame.Shadow.Plain)
-                line.setStyleSheet(f"QFrame {{ border: none; border-top: 1px solid {NAVER_BORDER}; margin: 0px; }}")
-                layout.addWidget(line)
-
-            row = QHBoxLayout()
+            row_frame = QFrame()
+            row_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: #FFFFFF;
+                    border: 1px solid {NAVER_BORDER};
+                    border-radius: 8px;
+                }}
+            """)
+            row = QHBoxLayout(row_frame)
+            row.setContentsMargins(8, 6, 8, 6)
             row.setSpacing(8)
 
             account_label = QLabel(f"계정 {i + 1}: {account_id}")
@@ -6116,7 +6117,7 @@ class AccountFileBindingDialog(QDialog):
             open_btn.clicked.connect(lambda _, aid=account_id: self.parent._open_account_binding_target(aid, self.mode))
             row.addWidget(open_btn)
 
-            layout.addLayout(row)
+            layout.addWidget(row_frame)
             self.account_rows.append((account_id, path_label))
             visible_row_count += 1
 
@@ -6137,6 +6138,12 @@ class AccountFileBindingDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
+
+        # 계정 수에 맞춰 다이얼로그 높이를 강제 축소해 불필요 여백 제거
+        row_count = max(visible_row_count, 1)
+        target_height = 92 + (row_count * 56) + 64
+        target_height = max(180, min(target_height, 320))
+        self.setFixedHeight(target_height)
 
     def _pick_for_account(self, account_id, path_label):
         if self.mode == "keywords":
