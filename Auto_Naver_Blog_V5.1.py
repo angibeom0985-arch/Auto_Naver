@@ -7190,17 +7190,27 @@ class NaverBlogGUI(QMainWindow):
 
         self.naver_account_selector = QComboBox()
         self.naver_account_selector.setMinimumWidth(190)
+        self.naver_account_selector.setMaxVisibleItems(6)
+        self.naver_account_selector.setEditable(False)
         self.naver_account_selector.setStyleSheet(f"""
             QComboBox {{
                 border: 2px solid {NAVER_BORDER};
                 border-radius: 8px;
                 padding: 4px 8px;
                 background-color: white;
-                color: {NAVER_TEXT};
+                color: #000000;
                 font-size: 12px;
             }}
             QComboBox:focus {{
                 border-color: {NAVER_GREEN};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: white;
+                color: #000000;
+                border: 1px solid {NAVER_BORDER};
+                selection-background-color: {NAVER_GREEN_LIGHT};
+                selection-color: #000000;
+                outline: none;
             }}
         """)
         self.naver_account_selector.currentIndexChanged.connect(self.on_naver_account_selector_changed)
