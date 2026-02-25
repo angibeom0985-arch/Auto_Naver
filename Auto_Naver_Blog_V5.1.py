@@ -7091,21 +7091,28 @@ class NaverBlogGUI(QMainWindow):
         summary_layout.setContentsMargins(12, 10, 12, 10)
         summary_layout.setSpacing(6)
 
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 0, 0, 0)
+        summary_row.setSpacing(10)
+
         self.naver_account_count_label = QLabel("등록 계정: 0개")
         self.naver_account_count_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
         self.naver_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
-        self.naver_account_count_label.setWordWrap(True)
-        summary_layout.addWidget(self.naver_account_count_label)
+        self.naver_account_count_label.setWordWrap(False)
+        summary_row.addWidget(self.naver_account_count_label)
+        summary_row.addStretch()
 
-        self.naver_account_active_label = QLabel("현재 선택: 없음")
-        self.naver_account_active_label.setFont(QFont(self.font_family, 12))
-        self.naver_account_active_label.setStyleSheet(f"color: {NAVER_TEXT_SUB}; border: none;")
-        self.naver_account_active_label.setWordWrap(True)
-        summary_layout.addWidget(self.naver_account_active_label)
+        add_account_btn = QPushButton("＋ 계정 추가하기")
+        add_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_account_btn.setStyleSheet(save_btn_style)
+        add_account_btn.setMinimumHeight(34)
+        add_account_btn.clicked.connect(self.open_naver_accounts_dialog)
+        summary_row.addWidget(add_account_btn)
+        summary_layout.addLayout(summary_row)
 
         login_card.content_layout.addWidget(summary_box)
 
-        manage_accounts_btn = QPushButton("👥 계정 관리")
+        manage_accounts_btn = QPushButton("💾 계정 정보 저장")
         manage_accounts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         manage_accounts_btn.setStyleSheet(save_btn_style)
         manage_accounts_btn.setMinimumHeight(save_btn_height)
@@ -8060,14 +8067,6 @@ class NaverBlogGUI(QMainWindow):
         tab.setWidget(content)
         return tab
     
-    def _mask_account_id(self, account_id):
-        account_id = (account_id or "").strip()
-        if not account_id:
-            return "없음"
-        if len(account_id) <= 2:
-            return "*" * len(account_id)
-        return f"{account_id[:2]}{'*' * (len(account_id) - 2)}"
-
     def _get_naver_account_slots(self):
         max_slots = NaverAccountsDialog.MAX_SLOTS
         slots = [{"id": "", "pw": ""} for _ in range(max_slots)]
@@ -8159,12 +8158,6 @@ class NaverBlogGUI(QMainWindow):
         if hasattr(self, "naver_account_count_label"):
             count = len(filled_accounts)
             self.naver_account_count_label.setText(f"등록 계정: {count}개")
-        if hasattr(self, "naver_account_active_label"):
-            if self.config["naver_id"]:
-                masked = self._mask_account_id(self.config["naver_id"])
-                self.naver_account_active_label.setText(f"현재 선택: 슬롯 {active_slot + 1} ({masked})")
-            else:
-                self.naver_account_active_label.setText("현재 선택: 없음")
 
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
         normalized = []
