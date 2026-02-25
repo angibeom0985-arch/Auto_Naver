@@ -6096,7 +6096,7 @@ class AccountFileBindingDialog(QDialog):
             account_label.setStyleSheet("font-weight: bold;")
             row.addWidget(account_label)
 
-            path_label = QLabel(self.parent._account_binding_preview_path(account_id, self.mode))
+            path_label = QLabel(self.parent._account_binding_display_name(account_id, self.mode))
             path_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
             path_label.setWordWrap(True)
             row.addWidget(path_label, 1)
@@ -6139,7 +6139,7 @@ class AccountFileBindingDialog(QDialog):
             if not selected:
                 return
             if self.parent._apply_keywords_file_to_account(account_id, selected):
-                path_label.setText(self.parent._account_binding_preview_path(account_id, self.mode))
+                path_label.setText(self.parent._account_binding_display_name(account_id, self.mode))
         else:
             selected = QFileDialog.getExistingDirectory(
                 self, "썸네일 폴더 선택", self.parent.data_dir
@@ -6147,7 +6147,7 @@ class AccountFileBindingDialog(QDialog):
             if not selected:
                 return
             if self.parent._apply_thumbnail_dir_to_account(account_id, selected):
-                path_label.setText(self.parent._account_binding_preview_path(account_id, self.mode))
+                path_label.setText(self.parent._account_binding_display_name(account_id, self.mode))
 
 
 class NaverBlogGUI(QMainWindow):
@@ -8437,6 +8437,11 @@ class NaverBlogGUI(QMainWindow):
             target, _ = _resolve_account_keyword_paths(self.data_dir, account_id, create=True)
             return target
         return _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
+
+    def _account_binding_display_name(self, account_id, mode):
+        path = self._account_binding_preview_path(account_id, mode)
+        name = os.path.basename(path.rstrip("\\/"))
+        return name or path
 
     def _open_account_binding_target(self, account_id, mode):
         import subprocess
