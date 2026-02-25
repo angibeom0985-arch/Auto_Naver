@@ -6052,7 +6052,8 @@ class AccountFileBindingDialog(QDialog):
         self.parent = parent
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
         self.setWindowTitle("계정별 파일 적용")
-        self.setMinimumWidth(900)
+        self.setMinimumWidth(740)
+        self.resize(760, 280)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6074,11 +6075,6 @@ class AccountFileBindingDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-
-        title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일/폴더를 계정별로 적용합니다."
-        title_label = QLabel(title_text)
-        title_label.setStyleSheet(f"font-weight: bold; color: {NAVER_TEXT};")
-        layout.addWidget(title_label)
 
         slots = self.parent._get_naver_account_slots()
         self.account_rows = []
@@ -6119,9 +6115,10 @@ class AccountFileBindingDialog(QDialog):
             empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
             layout.addWidget(empty_label)
 
-        guide = QLabel("선택한 파일은 해당 계정 전용 폴더로 복사되어 연결됩니다.")
-        guide.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
-        layout.addWidget(guide)
+        title_text = "키워드 파일을 계정별로 적용합니다." if self.mode == "keywords" else "썸네일 파일/폴더를 계정별로 적용합니다."
+        title_label = QLabel(title_text)
+        title_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        layout.addWidget(title_label)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
