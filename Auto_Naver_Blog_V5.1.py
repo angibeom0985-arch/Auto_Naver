@@ -116,6 +116,86 @@ def _sanitize_profile_name(name):
     ).strip("_")
     return cleaned or None
 
+def _account_resource_key(account_id):
+    key = _sanitize_profile_name(account_id)
+    return key or "default"
+
+def _get_account_resource_root(base_dir, account_id, create=False):
+    root = os.path.join(base_dir, "setting", "accounts", _account_resource_key(account_id))
+    if create:
+        os.makedirs(root, exist_ok=True)
+    return root
+
+def _resolve_account_keyword_paths(base_dir, account_id, create=False):
+    import shutil
+
+    account_root = _get_account_resource_root(base_dir, account_id, create=create)
+    keyword_dir = os.path.join(account_root, "keywords")
+    keywords_file = os.path.join(keyword_dir, "keywords.txt")
+    used_keywords_file = os.path.join(keyword_dir, "used_keywords.txt")
+
+    if create:
+        os.makedirs(keyword_dir, exist_ok=True)
+        legacy_keyword = os.path.join(base_dir, "setting", "keywords", "keywords.txt")
+        legacy_used = os.path.join(base_dir, "setting", "keywords", "used_keywords.txt")
+
+        if not os.path.exists(keywords_file):
+            if os.path.exists(legacy_keyword):
+                try:
+                    shutil.copy2(legacy_keyword, keywords_file)
+                except Exception:
+                    pass
+            if not os.path.exists(keywords_file):
+                try:
+                    with open(keywords_file, "w", encoding="utf-8") as f:
+                        f.write("# 키워드를 한 줄에 하나씩 입력하세요\n")
+                except Exception:
+                    pass
+
+        if not os.path.exists(used_keywords_file):
+            if os.path.exists(legacy_used):
+                try:
+                    shutil.copy2(legacy_used, used_keywords_file)
+                except Exception:
+                    pass
+            if not os.path.exists(used_keywords_file):
+                try:
+                    with open(used_keywords_file, "a", encoding="utf-8"):
+                        pass
+                except Exception:
+                    pass
+    return keywords_file, used_keywords_file
+
+def _resolve_account_thumbnail_dir(base_dir, account_id, create=False):
+    import shutil
+
+    account_root = _get_account_resource_root(base_dir, account_id, create=create)
+    thumbnail_dir = os.path.join(account_root, "image")
+    if create:
+        os.makedirs(thumbnail_dir, exist_ok=True)
+        legacy_dir = os.path.join(base_dir, "setting", "image")
+        try:
+            has_seed_file = any(
+                n.lower().endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc"))
+                for n in os.listdir(thumbnail_dir)
+            )
+        except Exception:
+            has_seed_file = False
+
+        if (not has_seed_file) and os.path.isdir(legacy_dir):
+            try:
+                for name in os.listdir(legacy_dir):
+                    lower = name.lower()
+                    if not lower.endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc")):
+                        continue
+                    src = os.path.join(legacy_dir, name)
+                    dst = os.path.join(thumbnail_dir, name)
+                    if os.path.isfile(src) and not os.path.exists(dst):
+                        shutil.copy2(src, dst)
+            except Exception:
+                pass
+    return thumbnail_dir
+
 def _load_profile_registry(registry_path):
     try:
         if os.path.exists(registry_path):
@@ -831,7 +911,7 @@ class NaverBlogAutomation:
     
     def load_keyword(self):
         """키워드를 keywords.txt 파일에서 로드 (개수 확인 및 경고)"""
-        keywords_file = os.path.join(self.data_dir, "setting", "keywords", "keywords.txt")
+        keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
         
         # 파일 읽기 재시도 로직 (파일 동시 접근 문제 해결)
         max_retries = 3
@@ -896,8 +976,7 @@ class NaverBlogAutomation:
     
     def move_keyword_to_used(self, keyword):
         """키워드를 keywords.txt에서 제거하고 used_keywords.txt로 이동"""
-        keywords_file = os.path.join(self.data_dir, "setting", "keywords", "keywords.txt")
-        used_keywords_file = os.path.join(self.data_dir, "setting", "keywords", "used_keywords.txt")
+        keywords_file, used_keywords_file = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
         
         # 파일 작업 재시도 로직
         max_retries = 3
@@ -2179,7 +2258,7 @@ class NaverBlogAutomation:
             self._update_status("🎨 썸네일 생성 중...")
             
             # setting/image 폴더의 jpg 파일 찾기
-            image_folder = os.path.join(self.data_dir, "setting", "image")
+            image_folder = _resolve_account_thumbnail_dir(self.data_dir, self.naver_id, create=True)
             self._update_status(f"📁 이미지 폴더 경로: {image_folder}")
             if not os.path.exists(image_folder):
                 self._update_status(f"⚠️ {image_folder} 폴더가 없습니다.")
@@ -4484,6 +4563,8 @@ class NaverBlogAutomation:
                                     fetched_title = self._fetch_post_title_from_url(url)
                                     if fetched_title:
                                         title = fetched_title
+                            if self._looks_like_url_text(title):
+                                title = ""
                             if not title:
                                 title = f"관련 글 {idx + 1}"
 
@@ -5422,7 +5503,7 @@ class NaverBlogAutomation:
                 self.move_keyword_to_used(self.current_keyword)
             
             # 남은 키워드 수 확인
-            keywords_file = os.path.join(self.data_dir, "setting", "keywords", "keywords.txt")
+            keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
             try:
                 with open(keywords_file, 'r', encoding='utf-8') as f:
                     remaining_keywords = [line.strip() for line in f if line.strip()]
@@ -8165,6 +8246,26 @@ class NaverBlogGUI(QMainWindow):
             count = len(filled_accounts)
             self.naver_account_count_label.setText(f"등록 계정: {count}개")
 
+    def _selected_naver_account_id(self):
+        account_id = ""
+        try:
+            if hasattr(self, "naver_id_entry"):
+                account_id = self.naver_id_entry.text().strip()
+        except Exception:
+            account_id = ""
+        if not account_id:
+            account_id = str(self.config.get("naver_id", "")).strip()
+        return account_id
+
+    def _selected_keywords_file(self, create=True):
+        account_id = self._selected_naver_account_id()
+        keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, account_id, create=create)
+        return keywords_file
+
+    def _selected_thumbnail_dir(self, create=True):
+        account_id = self._selected_naver_account_id()
+        return _resolve_account_thumbnail_dir(self.data_dir, account_id, create=create)
+
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
         normalized = []
         max_slots = NaverAccountsDialog.MAX_SLOTS
@@ -8502,7 +8603,7 @@ class NaverBlogGUI(QMainWindow):
         self.interval_label.setText(f"⏱️ 발행 간격: {interval_text}분")
         
         # 썸네일 폴더 JPG 존재 여부 상태
-        thumbnail_dir = os.path.join(self.data_dir, "setting", "image")
+        thumbnail_dir = self._selected_thumbnail_dir(create=True)
         has_jpg = False
         try:
             if os.path.isdir(thumbnail_dir):
@@ -8679,7 +8780,7 @@ class NaverBlogGUI(QMainWindow):
     def count_keywords(self):
         """키워드 개수 카운트"""
         try:
-            keywords_file = os.path.join(self.data_dir, "setting", "keywords", "keywords.txt")
+            keywords_file = self._selected_keywords_file(create=True)
             if os.path.exists(keywords_file):
                 with open(keywords_file, "r", encoding="utf-8") as f:
                     return len([line.strip() for line in f if line.strip() and not line.strip().startswith('#')])
@@ -9044,7 +9145,7 @@ class NaverBlogGUI(QMainWindow):
         is_target_folder = False
         
         if "image" in filename:
-            file_path = os.path.join(self.data_dir, "setting", "image")
+            file_path = self._selected_thumbnail_dir(create=True)
             is_target_folder = True
         elif "result" in filename:
             file_path = os.path.join(self.data_dir, "setting", "result")
@@ -9055,7 +9156,7 @@ class NaverBlogGUI(QMainWindow):
         else:
             file_path = os.path.join(self.data_dir, filename)
             if "keywords.txt" in filename:
-                 file_path = os.path.join(self.data_dir, "setting", "keywords", "keywords.txt")
+                 file_path = self._selected_keywords_file(create=True)
             elif "prompt" in filename and filename.endswith(".txt"):
                  file_path = os.path.join(self.data_dir, "setting", "prompt", filename)
             
@@ -9350,7 +9451,8 @@ class NaverBlogGUI(QMainWindow):
             self.resume_btn.setEnabled(False)
 
         # 썸네일 JPG 파일 존재 확인 (필수)
-        thumbnail_dir = os.path.join(self.data_dir, "setting", "image")
+        account_id = self._selected_naver_account_id()
+        thumbnail_dir = self._selected_thumbnail_dir(create=True)
         try:
             jpg_files = []
             if os.path.isdir(thumbnail_dir):
@@ -9359,18 +9461,18 @@ class NaverBlogGUI(QMainWindow):
                     if lower.endswith(".jpg") or lower.endswith(".jpeg"):
                         jpg_files.append(name)
             if not jpg_files:
-                self.show_message("⚠️ 경고", "썸네일 폴더에 JPG 파일이 없습니다.\nsetting/image 폴더에 JPG를 추가해주세요.", "warning")
+                self.show_message("⚠️ 경고", f"썸네일 폴더에 JPG 파일이 없습니다.\n계정({account_id or 'default'}) 전용 폴더에 JPG를 추가해주세요.\n{thumbnail_dir}", "warning")
                 _reset_start_state()
                 return
         except Exception:
-            self.show_message("⚠️ 경고", "썸네일 폴더 확인 중 오류가 발생했습니다.\nsetting/image 폴더를 확인해주세요.", "warning")
+            self.show_message("⚠️ 경고", f"썸네일 폴더 확인 중 오류가 발생했습니다.\n{thumbnail_dir}", "warning")
             _reset_start_state()
             return
 
         # 키워드 파일 확인 (필수)
         keyword_count = self.count_keywords()
         if keyword_count <= 0:
-            self.show_message("⚠️ 경고", "keywords.txt에 키워드가 없습니다.\nsetting/keywords/keywords.txt에 키워드를 추가해주세요.", "warning")
+            self.show_message("⚠️ 경고", f"키워드가 없습니다.\n계정({account_id or 'default'}) 전용 keywords.txt에 키워드를 추가해주세요.\n{self._selected_keywords_file(create=True)}", "warning")
             _reset_start_state()
             return
         
@@ -9558,7 +9660,7 @@ class NaverBlogGUI(QMainWindow):
                     
                     # 남은 키워드 수 확인 및 30개 미만 경고
                     try:
-                        keywords_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setting", "keywords", "keywords.txt")
+                        keywords_file = self._selected_keywords_file(create=True)
                         with open(keywords_file, 'r', encoding='utf-8') as f:
                             remaining_keywords = [line.strip() for line in f if line.strip()]
                             keyword_count = len(remaining_keywords)
