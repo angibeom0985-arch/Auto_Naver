@@ -8332,6 +8332,28 @@ class NaverBlogGUI(QMainWindow):
                 return i
         return -1
 
+    def _get_registered_naver_accounts(self):
+        slots = self._get_naver_account_slots()
+        accounts = []
+        for idx, slot in enumerate(slots):
+            account_id = str(slot.get("id", "")).strip()
+            account_pw = str(slot.get("pw", "")).strip()
+            if account_id and account_pw:
+                accounts.append((idx, account_id, account_pw))
+        return accounts
+
+    def _get_account_cycle_start_position(self, accounts):
+        if not accounts:
+            return 0
+        try:
+            active_slot = int(self.config.get("active_naver_account_slot", 0))
+        except Exception:
+            active_slot = 0
+        for pos, (slot_idx, _, _) in enumerate(accounts):
+            if slot_idx == active_slot:
+                return pos
+        return 0
+
     def _get_active_naver_account_slot(self, slots):
         try:
             active_slot = int(self.config.get("active_naver_account_slot", 0))
@@ -8415,14 +8437,13 @@ class NaverBlogGUI(QMainWindow):
         self._update_settings_status(f"👤 작업 계정이 계정 {index + 1}로 변경되었습니다")
 
     def _selected_naver_account_id(self):
-        account_id = ""
-        try:
-            if hasattr(self, "naver_id_entry"):
-                account_id = self.naver_id_entry.text().strip()
-        except Exception:
-            account_id = ""
+        account_id = str(self.config.get("naver_id", "")).strip()
         if not account_id:
-            account_id = str(self.config.get("naver_id", "")).strip()
+            try:
+                if hasattr(self, "naver_id_entry"):
+                    account_id = self.naver_id_entry.text().strip()
+            except Exception:
+                account_id = ""
         return account_id
 
     def _selected_keywords_file(self, create=True):
@@ -9731,11 +9752,24 @@ class NaverBlogGUI(QMainWindow):
         def run_automation():
             # 무한 반복 (is_running이 False가 될 때까지)
             is_first_run_flag = is_first_start
+            registered_accounts = self._get_registered_naver_accounts()
+            if not registered_accounts:
+                self.update_progress_status("❌ 등록된 네이버 계정이 없습니다.")
+                self.is_running = False
+                self.ui_state_signal.emit(True, False, False, False)
+                return
+            account_cycle_pos = self._get_account_cycle_start_position(registered_accounts)
             
             while self.is_running and not self.stop_requested:
                 try:
                     if not is_first_run_flag:
                         print("🔄 [DEBUG] 다음 포스팅 시작")
+
+                    slot_idx, cycle_naver_id, cycle_naver_pw = registered_accounts[account_cycle_pos]
+                    self.config["active_naver_account_slot"] = slot_idx
+                    self.config["naver_id"] = cycle_naver_id
+                    self.config["naver_pw"] = cycle_naver_pw
+                    self.update_progress_status(f"👤 작업 계정: 계정 {slot_idx + 1} ({cycle_naver_id})")
                     
                     external_link = self.link_url_entry.text() if self.use_link_checkbox.isChecked() else ""
                     external_link_text = self.link_text_entry.text() if self.use_link_checkbox.isChecked() else ""
@@ -9748,8 +9782,8 @@ class NaverBlogGUI(QMainWindow):
                         posting_method = "home" if self.config.get("posting_method") == "home" else "search"
 
                         self.automation = NaverBlogAutomation(
-                            naver_id=self.naver_id_entry.text(),
-                            naver_pw=self.naver_pw_entry.text(),
+                            naver_id=cycle_naver_id,
+                            naver_pw=cycle_naver_pw,
                             api_key=api_key,
                             ai_model=ai_model,
                             posting_method=posting_method,
@@ -9776,8 +9810,8 @@ class NaverBlogGUI(QMainWindow):
                         posting_method = "home" if self.config.get("posting_method") == "home" else "search"
 
                         self.automation.update_naver_account(
-                            self.naver_id_entry.text(),
-                            self.naver_pw_entry.text()
+                            cycle_naver_id,
+                            cycle_naver_pw
                         )
                         self.automation.api_key = api_key
                         self.automation.posting_method = posting_method
@@ -9888,6 +9922,11 @@ class NaverBlogGUI(QMainWindow):
                     print("✅ 포스팅이 완료되었습니다!")
                     self.consecutive_runtime_errors = 0
                     self.gemini_web_recovery_attempts = 0
+
+                    if len(registered_accounts) > 1:
+                        account_cycle_pos = (account_cycle_pos + 1) % len(registered_accounts)
+                        next_slot_idx, next_id, _ = registered_accounts[account_cycle_pos]
+                        self.update_progress_status(f"🔁 다음 계정 대기: 계정 {next_slot_idx + 1} ({next_id})")
                     
                     # UI 상태 갱신 (키워드 개수 등 실시간 업데이트)
                     self.ui_refresh_status_signal.emit()
