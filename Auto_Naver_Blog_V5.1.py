@@ -166,6 +166,54 @@ def _resolve_account_keyword_paths(base_dir, account_id, create=False):
                     pass
     return keywords_file, used_keywords_file
 
+def _resolve_keyword_source_meta_path(base_dir, account_id, create=False):
+    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
+    keyword_dir = os.path.dirname(keywords_file)
+    if create:
+        os.makedirs(keyword_dir, exist_ok=True)
+    return os.path.join(keyword_dir, "keywords_source_name.txt")
+
+def _read_keyword_source_name(base_dir, account_id):
+    meta_path = _resolve_keyword_source_meta_path(base_dir, account_id, create=False)
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                name = (f.read() or "").strip()
+                if name:
+                    return os.path.basename(name)
+    except Exception:
+        pass
+    return "keywords.txt"
+
+def _write_keyword_source_name(base_dir, account_id, source_filename):
+    meta_path = _resolve_keyword_source_meta_path(base_dir, account_id, create=True)
+    safe_name = os.path.basename(str(source_filename or "").strip()) or "keywords.txt"
+    if not safe_name.lower().endswith(".txt"):
+        safe_name = f"{safe_name}.txt"
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            f.write(safe_name)
+    except Exception:
+        pass
+
+def _resolve_used_keyword_log_path(base_dir, account_id, create=False):
+    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
+    keyword_dir = os.path.dirname(keywords_file)
+    source_name = _read_keyword_source_name(base_dir, account_id)
+    source_name = os.path.basename(source_name) if source_name else "keywords.txt"
+    if not source_name.lower().endswith(".txt"):
+        source_name = f"{source_name}.txt"
+    used_name = f"used_{source_name}"
+    used_path = os.path.join(keyword_dir, used_name)
+    if create:
+        try:
+            if not os.path.exists(used_path):
+                with open(used_path, "a", encoding="utf-8"):
+                    pass
+        except Exception:
+            pass
+    return used_path
+
 def _resolve_account_thumbnail_dir(base_dir, account_id, create=False):
     import shutil
 
@@ -975,8 +1023,9 @@ class NaverBlogAutomation:
         return None
     
     def move_keyword_to_used(self, keyword):
-        """키워드를 keywords.txt에서 제거하고 used_keywords.txt로 이동"""
-        keywords_file, used_keywords_file = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
+        """키워드를 keywords.txt에서 제거하고 used_<선택파일명>.txt로 이동"""
+        keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
+        used_keywords_file = _resolve_used_keyword_log_path(self.data_dir, self.naver_id, create=True)
         
         # 파일 작업 재시도 로직
         max_retries = 3
@@ -999,7 +1048,7 @@ class NaverBlogAutomation:
                     for kw in remaining_keywords:
                         f.write(kw + '\n')
                 
-                # used_keywords.txt에 추가
+                # used_<원본파일명>.txt에 추가
                 with open(used_keywords_file, 'a', encoding='utf-8') as f:
                     f.write(keyword + '\n')
                 
@@ -2060,12 +2109,15 @@ class NaverBlogAutomation:
             
             # 3. 로그인이 필요하면 수행
             if login_needed:
-                if not self._perform_google_login():
-                     # 로그인 실패해도 에디터 확인 시도 (일시적 오류일 수 있음)
-                     pass
-                else:
-                    # 로그인 성공 후 대기
-                    time.sleep(3)
+                self._update_status("🔐 Gemini 로그인 필요: 브라우저에서 1회 수동 로그인 해주세요.")
+                wait_seconds = 180
+                started = time.time()
+                while time.time() - started < wait_seconds:
+                    if self._find_gemini_editor(timeout=2):
+                        self.gemini_logged_in = True
+                        self._update_status("✅ Gemini 로그인 확인 완료")
+                        break
+                    self._sleep_with_checks(1)
 
             # 4. 에디터(입력창) 확인
             self._update_status("✅ 에디터 확인 중...")
@@ -5138,93 +5190,6 @@ class NaverBlogAutomation:
             self._update_status("✅ 브라우저 실행 완료!")
             self.browser_session_started_at = time.time()
             self.browser_session_post_count = 0
-
-            # -----------------------------------------------------------
-            # [Gemini Login Check]
-            # -----------------------------------------------------------
-            self._update_status("🤖 Gemini 로그인 상태 확인 중...")
-            try:
-                self.driver.get("https://gemini.google.com/app")
-                time.sleep(3)
-                
-                login_btn = None
-                try:
-                    # provided by user: <a aria-label="로그인" ...>
-                    login_btn = self.driver.find_element(By.CSS_SELECTOR, "a[aria-label='로그인']")
-                except:
-                    try:
-                        # Fallback
-                        login_btn = self.driver.find_element(By.CSS_SELECTOR, ".gb_Cd a[href*='ServiceLogin']")
-                    except:
-                        pass
-                
-                if login_btn:
-                    self._update_status("🔐 로그인 버튼 발견! 클릭합니다.")
-                    # Ensure element is clickable
-                    self.driver.execute_script("arguments[0].click();", login_btn)
-                    time.sleep(2)
-                    
-                    # [Automated Login Attempt]
-                    # 사용자가 설정한 ID/PW가 잇다면 자동 입력 시도
-                    if self.config.get("google_id") and self.config.get("google_pw"):
-                        self._perform_google_login()
-                    
-                    # [Login Wait Loop]
-                    self._update_status("⏳ 로그인 대기 중... (완료 시 자동 진행)")
-                    max_wait = 300  # 5분 대기
-                    start_wait = time.time()
-                    check_count = 0
-                    while time.time() - start_wait < max_wait:
-                        try:
-                            check_count += 1
-                            
-                            # 1차: 에디터 요소 확인 (여러 selector)
-                            editor_selectors = [
-                                "div[contenteditable='true']",
-                                "rich-textarea",
-                                "div[role='textbox']",
-                                "div.ql-editor"
-                            ]
-                            for selector in editor_selectors:
-                                if self.driver.find_elements(By.CSS_SELECTOR, selector):
-                                    self._update_status("✅ 로그인 완료! (에디터 발견)")
-                                    time.sleep(1)  # 안정화 대기
-                                    return True
-                            
-                            # 2차: "물어보기" 텍스트 확인
-                            if self.driver.find_elements(By.XPATH, "//*[contains(text(), '물어보기')]"):
-                                self._update_status("✅ 로그인 완료! (입력창 발견)")
-                                time.sleep(1)
-                                return True
-                            
-                            # 3차: URL + 로그인 버튼 없음 확인
-                            if "gemini.google.com/app" in self.driver.current_url:
-                                if not self.driver.find_elements(By.CSS_SELECTOR, "a[aria-label='로그인']"):
-                                    # 페이지 로딩 대기
-                                    time.sleep(2)
-                                    # 다시 한번 에디터 확인
-                                    if self.driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true']") or \
-                                       self.driver.find_elements(By.XPATH, "//*[contains(text(), '물어보기')]"):
-                                        self._update_status("✅ 로그인 완료! (페이지 로드됨)")
-                                        return True
-                            
-                            # 매 10번째 체크마다 진행 상황 표시
-                            if check_count % 10 == 0:
-                                elapsed = int(time.time() - start_wait)
-                                self._update_status(f"⏳ 로그인 대기 중... ({elapsed}초 경과)", overwrite=True)
-                        except:
-                            pass
-                        time.sleep(1)
-                    
-                    self._update_status("⚠️ 로그인 대기 시간 초과 (진행 시도)")
-                    return True
-
-                else:
-                    self._update_status("✅ 이미 로그인 되어 있습니다.")
-                    
-            except Exception as e:
-                self._update_status(f"⚠️ Gemini 로그인 확인 중 오류 (무시): {str(e)[:50]}")
-
             return True
             
         except Exception as e:
@@ -8520,6 +8485,8 @@ class NaverBlogGUI(QMainWindow):
 
     def _account_binding_display_name(self, account_id, mode):
         path = self._account_binding_preview_path(account_id, mode)
+        if mode == "keywords":
+            return _read_keyword_source_name(self.data_dir, account_id)
         if mode == "thumbnail":
             try:
                 if os.path.isdir(path):
@@ -8558,7 +8525,14 @@ class NaverBlogGUI(QMainWindow):
         try:
             target_file, used_file = _resolve_account_keyword_paths(self.data_dir, account_id, create=True)
             shutil.copy2(source_file, target_file)
-            # 새 키워드 파일로 교체 시 used 키워드 파일은 초기화
+            source_name = os.path.basename(source_file)
+            _write_keyword_source_name(self.data_dir, account_id, source_name)
+
+            # 새 키워드 파일로 교체 시 used_<원본파일명>.txt를 초기화
+            selected_used_file = _resolve_used_keyword_log_path(self.data_dir, account_id, create=True)
+            with open(selected_used_file, "w", encoding="utf-8"):
+                pass
+            # 레거시 used_keywords.txt도 비워 혼선을 방지
             with open(used_file, "w", encoding="utf-8"):
                 pass
             self._update_settings_status(f"✅ 계정({account_id}) 키워드 파일 적용 완료")
