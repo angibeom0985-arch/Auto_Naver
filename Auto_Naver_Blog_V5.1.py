@@ -6073,8 +6073,8 @@ class AccountFileBindingDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
 
         slots = self.parent._get_naver_account_slots()
         self.account_rows = []
@@ -6094,11 +6094,11 @@ class AccountFileBindingDialog(QDialog):
                 }}
             """)
             row = QHBoxLayout(row_frame)
-            row.setContentsMargins(8, 6, 8, 6)
-            row.setSpacing(8)
+            row.setContentsMargins(6, 4, 6, 4)
+            row.setSpacing(6)
 
             account_label = QLabel(f"계정 {i + 1}: {account_id}")
-            account_label.setMinimumWidth(220)
+            account_label.setMinimumWidth(200)
             account_label.setStyleSheet("font-weight: bold;")
             row.addWidget(account_label)
 
@@ -6109,11 +6109,13 @@ class AccountFileBindingDialog(QDialog):
 
             pick_btn = QPushButton("선택")
             pick_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+            pick_btn.setFixedHeight(36)
             pick_btn.clicked.connect(lambda _, aid=account_id, pl=path_label: self._pick_for_account(aid, pl))
             row.addWidget(pick_btn)
 
             open_btn = QPushButton("열기")
             open_btn.setStyleSheet(f"background-color: {NAVER_TEXT_SUB};")
+            open_btn.setFixedHeight(36)
             open_btn.clicked.connect(lambda _, aid=account_id: self.parent._open_account_binding_target(aid, self.mode))
             row.addWidget(open_btn)
 
@@ -6135,14 +6137,15 @@ class AccountFileBindingDialog(QDialog):
         buttons.addStretch()
         close_btn = QPushButton("닫기")
         close_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        close_btn.setFixedHeight(36)
         close_btn.clicked.connect(self.accept)
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
 
         # 계정 수에 맞춰 다이얼로그 높이를 강제 축소해 불필요 여백 제거
         row_count = max(visible_row_count, 1)
-        target_height = 92 + (row_count * 56) + 64
-        target_height = max(180, min(target_height, 320))
+        target_height = 44 + (row_count * 52) + 54
+        target_height = max(150, min(target_height, 260))
         self.setFixedHeight(target_height)
 
     def _pick_for_account(self, account_id, path_label):
