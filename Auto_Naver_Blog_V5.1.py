@@ -400,6 +400,7 @@ class NaverBlogAutomation:
         
         self.naver_id = naver_id
         self.naver_pw = naver_pw
+        self.account_profile_slot = self._build_account_profile_slot(naver_id)
         self.api_key = api_key
         # GPT 지원 종료: 내부적으로 Gemini만 사용
         self.ai_model = "gemini"
@@ -507,6 +508,57 @@ class NaverBlogAutomation:
             value = maximum
         return value
 
+    def _build_account_profile_slot(self, account_id):
+        """계정별 고정 프로필 슬롯명 생성"""
+        cleaned = _sanitize_profile_name(account_id)
+        if not cleaned:
+            return None
+        # 파일시스템 경로 길이와 가독성을 고려해 길이 제한
+        cleaned = cleaned[:32]
+        return f"acct_{cleaned}"
+
+    def _mask_account_id(self, account_id):
+        raw = (account_id or "").strip()
+        if not raw:
+            return "미설정"
+        if len(raw) <= 2:
+            return "*" * len(raw)
+        return f"{raw[:2]}{'*' * (len(raw) - 2)}"
+
+    def _reset_driver_for_account_switch(self):
+        """계정 전환 시 기존 드라이버/슬롯 정리 후 새 슬롯으로 재시작 준비"""
+        try:
+            if self.driver:
+                self.driver.quit()
+        except Exception:
+            pass
+        self.driver = None
+        self.login_tab_handle = None
+        self.blog_tab_handle = None
+        self.gemini_tab_handle = None
+        self.browser_session_started_at = None
+        self.browser_session_post_count = 0
+        self._release_profile_slot()
+
+    def update_naver_account(self, naver_id, naver_pw):
+        """실행 중 계정 변경을 감지해 계정별 고정 세션으로 전환"""
+        prev_id = (self.naver_id or "").strip()
+        new_id = (naver_id or "").strip()
+
+        self.naver_id = naver_id
+        self.naver_pw = naver_pw
+
+        prev_slot = self.account_profile_slot
+        new_slot = self._build_account_profile_slot(new_id)
+        self.account_profile_slot = new_slot
+
+        if prev_slot != new_slot:
+            self._update_status(
+                f"🔁 계정 전환 감지 ({self._mask_account_id(prev_id)} -> {self._mask_account_id(new_id)}): "
+                "브라우저 세션을 계정 전용 프로필로 전환합니다."
+            )
+            self._reset_driver_for_account_switch()
+
     def _requested_profile_slot(self):
         """CLI/ENV/설정에서 지정된 프로필 슬롯명(선택)"""
         from_cli = _parse_profile_arg(sys.argv)
@@ -517,7 +569,17 @@ class NaverBlogAutomation:
         except Exception:
             from_cfg = ""
         requested = _sanitize_profile_name(from_cli or from_env or from_cfg)
-        return requested or None
+        if requested:
+            return requested
+
+        auto_profile_per_account = True
+        try:
+            auto_profile_per_account = bool(self.config.get("auto_profile_per_account", True))
+        except Exception:
+            auto_profile_per_account = True
+        if auto_profile_per_account:
+            return self.account_profile_slot
+        return None
 
     def _acquire_profile_slot(self, root_setting):
         """
@@ -9170,8 +9232,10 @@ class NaverBlogGUI(QMainWindow):
                         related_posts_title = self.config.get("related_posts_title", "함께 보면 좋은 글")
                         posting_method = "home" if self.config.get("posting_method") == "home" else "search"
 
-                        self.automation.naver_id = self.naver_id_entry.text()
-                        self.automation.naver_pw = self.naver_pw_entry.text()
+                        self.automation.update_naver_account(
+                            self.naver_id_entry.text(),
+                            self.naver_pw_entry.text()
+                        )
                         self.automation.api_key = api_key
                         self.automation.posting_method = posting_method
                         self.automation.external_link = external_link
