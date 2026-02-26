@@ -575,6 +575,8 @@ class NaverBlogAutomation:
         self.profile_lock_path = ""
         self.profile_slot_name = ""
         self.profile_dir = ""
+        self.force_account_relogin = False
+        self.last_authenticated_naver_id = ""
         
         # 디렉토리 설정 (exe 실행 시 고려)
         if getattr(sys, 'frozen', False):
@@ -666,6 +668,7 @@ class NaverBlogAutomation:
         self.gemini_tab_handle = None
         self.browser_session_started_at = None
         self.browser_session_post_count = 0
+        self.last_authenticated_naver_id = ""
         self._release_profile_slot()
 
     def update_naver_account(self, naver_id, naver_pw):
@@ -679,6 +682,10 @@ class NaverBlogAutomation:
         prev_slot = self.account_profile_slot
         new_slot = self._build_account_profile_slot(new_id)
         self.account_profile_slot = new_slot
+
+        if prev_id != new_id:
+            self.force_account_relogin = True
+            self.last_authenticated_naver_id = ""
 
         if prev_slot != new_slot:
             self._update_status(
@@ -757,6 +764,18 @@ class NaverBlogAutomation:
         self.profile_lock_file = None
         self.profile_lock_path = ""
         self.profile_slot_name = ""
+        self.profile_dir = ""
+
+    def _logout_naver_session(self):
+        """현재 네이버 세션 로그아웃 시도 (실패 시 다음 단계에서 재로그인으로 복구)"""
+        if not self.driver:
+            return
+        try:
+            self._update_status("🔓 기존 네이버 로그인 세션 정리 중...")
+            self.driver.get("https://nid.naver.com/nidlogin.logout")
+            self._sleep_with_checks(1.5)
+        except Exception:
+            pass
 
     def recycle_browser_session(self, retries=2):
         """브라우저 세션을 안전하게 재생성하고 로그인 상태까지 복구"""
@@ -5285,14 +5304,25 @@ class NaverBlogAutomation:
     def login(self):
         """네이버 로그인 (캡차 우회: 클립보드 복사 붙여넣기 방식)"""
         try:
-            # 이미 로그인 되어있는지 확인
+            target_id = (self.naver_id or "").strip()
+            active_id = (self.last_authenticated_naver_id or "").strip()
+
+            # 이미 로그인 상태라도 계정 전환 직후에는 반드시 재로그인
             if self.is_logged_in():
-                 try:
-                     self.login_tab_handle = self.driver.current_window_handle
-                 except Exception:
-                     pass
-                 self._update_status("✅ 이미 로그인 되어 있습니다.")
-                 return True
+                should_force = bool(self.force_account_relogin)
+                should_force = should_force or (active_id and target_id and active_id != target_id)
+                # 외부에서 남아있던 세션은 계정을 확정할 수 없으므로 안전하게 재로그인
+                should_force = should_force or not active_id
+
+                if should_force:
+                    self._logout_naver_session()
+                else:
+                    try:
+                        self.login_tab_handle = self.driver.current_window_handle
+                    except Exception:
+                        pass
+                    self._update_status("✅ 이미 로그인 되어 있습니다.")
+                    return True
 
             self._update_status("🔐 네이버 로그인 페이지 이동 중...")
             self.driver.get("https://nid.naver.com/nidlogin.login")
@@ -5354,6 +5384,8 @@ class NaverBlogAutomation:
                             self.login_tab_handle = self.driver.current_window_handle
                         except Exception:
                             pass
+                        self.last_authenticated_naver_id = target_id
+                        self.force_account_relogin = False
                         self._update_status("✅ 로그인 성공!")
                         return True
 
@@ -5363,6 +5395,8 @@ class NaverBlogAutomation:
                             self.login_tab_handle = self.driver.current_window_handle
                         except Exception:
                             pass
+                        self.last_authenticated_naver_id = target_id
+                        self.force_account_relogin = False
                         self._update_status("✅ 로그인 세션 확인됨!")
                         return True
                     
