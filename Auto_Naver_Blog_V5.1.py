@@ -659,14 +659,47 @@ class NaverBlogAutomation:
             return "*" * len(raw)
         return f"{raw[:2]}{'*' * (len(raw) - 2)}"
 
+    def _kill_leftover_chrome_for_profile(self):
+        """현재 프로필 슬롯과 연관된 잔존 Chrome 프로세스를 OS 레벨에서 강제 종료"""
+        if os.name != "nt":
+            return
+        try:
+            import subprocess
+            # 모든 Chrome 프로세스의 커맨드라인에서 현재 프로필 경로를 참조하는 것만 종료
+            profile_dir = getattr(self, "profile_dir", "") or ""
+            if not profile_dir:
+                return
+            # wmic 명령으로 해당 프로필을 사용 중인 Chrome 프로세스만 찾아 종료
+            result = subprocess.run(
+                ["wmic", "process", "where",
+                 f"name='chrome.exe' and commandline like '%{os.path.basename(profile_dir)}%'",
+                 "get", "processid"],
+                capture_output=True, text=True, timeout=10
+            )
+            for line in (result.stdout or "").splitlines():
+                pid = line.strip()
+                if pid.isdigit():
+                    try:
+                        subprocess.run(["taskkill", "/PID", pid, "/F"],
+                                       capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+        except Exception:
+            # 프로세스 정리 실패는 치명적 오류가 아니므로 무시
+            pass
+
     def _reset_driver_for_account_switch(self):
         """계정 전환 시 기존 드라이버/슬롯 정리 후 새 슬롯으로 재시작 준비"""
+        self._update_status("🔁 계정 전환: 기존 브라우저를 완전히 종료합니다.")
         try:
             if self.driver:
                 self.driver.quit()
         except Exception:
             pass
         self.driver = None
+        # Chrome 프로세스가 완전히 종료될 때까지 대기
+        time.sleep(2)
+        self._kill_leftover_chrome_for_profile()
         self.login_tab_handle = None
         self.blog_tab_handle = None
         self.gemini_tab_handle = None
@@ -795,6 +828,9 @@ class NaverBlogAutomation:
             self.login_tab_handle = None
             self.blog_tab_handle = None
             self.gemini_tab_handle = None
+        # Chrome 프로세스 완전 종료 대기 및 잔존 프로세스 정리
+        time.sleep(2)
+        self._kill_leftover_chrome_for_profile()
 
         for attempt in range(1, retries + 1):
             self._update_status(f"🔄 브라우저 재생성 시도 {attempt}/{retries}")
@@ -9942,6 +9978,9 @@ class NaverBlogGUI(QMainWindow):
                             cycle_naver_id,
                             cycle_naver_pw
                         )
+                        # 계정 전환으로 드라이버가 리셋됐으면 첫 실행으로 재설정
+                        if not self.automation.driver:
+                            is_first_run_flag = True
                         self.automation.api_key = api_key
                         self.automation.posting_method = posting_method
                         self.automation.external_link = external_link
