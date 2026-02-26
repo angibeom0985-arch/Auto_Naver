@@ -10,6 +10,7 @@ import io
 import locale
 import json
 import os
+import hashlib
 import threading
 import ctypes
 import pyperclip
@@ -640,12 +641,15 @@ class NaverBlogAutomation:
 
     def _build_account_profile_slot(self, account_id):
         """계정별 고정 프로필 슬롯명 생성"""
-        cleaned = _sanitize_profile_name(account_id)
+        raw = (account_id or "").strip()
+        cleaned = _sanitize_profile_name(raw)
         if not cleaned:
             return None
         # 파일시스템 경로 길이와 가독성을 고려해 길이 제한
-        cleaned = cleaned[:32]
-        return f"acct_{cleaned}"
+        cleaned = cleaned[:24]
+        # 앞부분이 같은 긴 계정 ID끼리 슬롯이 충돌하지 않도록 해시를 붙인다.
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        return f"acct_{cleaned}_{digest}"
 
     def _mask_account_id(self, account_id):
         raw = (account_id or "").strip()
@@ -687,7 +691,7 @@ class NaverBlogAutomation:
             self.force_account_relogin = True
             self.last_authenticated_naver_id = ""
 
-        if prev_slot != new_slot:
+        if prev_id != new_id or prev_slot != new_slot:
             self._update_status(
                 f"🔁 계정 전환 감지 ({self._mask_account_id(prev_id)} -> {self._mask_account_id(new_id)}): "
                 "브라우저 세션을 계정 전용 프로필로 전환합니다."
@@ -5504,6 +5508,13 @@ class NaverBlogAutomation:
                         return False
                     if not self.login():
                         self._update_status("❌ 로그인 재시도 실패")
+                        return False
+
+                # 계정 전환 플래그가 있으면 기존 로그인 상태와 무관하게 재로그인 강제
+                if self.force_account_relogin:
+                    self._update_status("🔁 계정 전환 감지 - 대상 계정으로 재로그인합니다.")
+                    if not self.login():
+                        self._update_status("❌ 계정 전환 재로그인 실패")
                         return False
 
                 # 후속 포스팅도 로그인 상태 재검증
