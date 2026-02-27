@@ -225,6 +225,25 @@ def _write_keyword_source_path(base_dir, account_id, source_path):
     except Exception:
         pass
 
+def _find_keyword_source_path(base_dir, account_id):
+    saved_path = _read_keyword_source_path(base_dir, account_id)
+    if saved_path and os.path.isfile(saved_path):
+        return saved_path
+
+    source_name = _read_keyword_source_name(base_dir, account_id)
+    source_name = os.path.basename(str(source_name or "").strip())
+    if not source_name:
+        return ""
+    if not source_name.lower().endswith(".txt"):
+        source_name = f"{source_name}.txt"
+
+    preferred_path = os.path.join(base_dir, "setting", "keywords", source_name)
+    if os.path.isfile(preferred_path):
+        _write_keyword_source_path(base_dir, account_id, preferred_path)
+        return preferred_path
+
+    return ""
+
 def _resolve_used_keyword_log_path(base_dir, account_id, create=False):
     keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
     keyword_dir = os.path.dirname(keywords_file)
@@ -6162,7 +6181,7 @@ class AccountFileBindingDialog(QDialog):
         self.parent = parent
         self.mode = mode if mode in ("keywords", "thumbnail") else "keywords"
         self.pending_keyword_files = {}
-        self.pending_thumbnail_file = ""
+        self.pending_thumbnail_files = {}
         self.setWindowTitle("계정별 파일 적용")
         self.setFixedWidth(660)
 
@@ -6267,7 +6286,7 @@ class AccountFileBindingDialog(QDialog):
 
     def _pick_for_account(self, account_id, path_label):
         if self.mode == "keywords":
-            source_path = _read_keyword_source_path(self.parent.data_dir, account_id)
+            source_path = _find_keyword_source_path(self.parent.data_dir, account_id)
             if source_path and os.path.exists(source_path):
                 initial_dir = os.path.dirname(source_path)
             else:
@@ -6288,10 +6307,8 @@ class AccountFileBindingDialog(QDialog):
             )
             if not selected:
                 return
-            self.pending_thumbnail_file = selected
-            picked_name = os.path.basename(selected)
-            for _, target_label in self.account_rows:
-                target_label.setText(picked_name)
+            self.pending_thumbnail_files[account_id] = selected
+            path_label.setText(os.path.basename(selected))
 
     def save_and_close(self):
         if self.mode == "keywords":
@@ -6309,12 +6326,12 @@ class AccountFileBindingDialog(QDialog):
             self.parent._show_auto_close_message("❌ 키워드 파일 저장에 실패했습니다.", QMessageBox.Icon.Warning)
             return
 
-        if not self.pending_thumbnail_file:
+        if not self.pending_thumbnail_files:
             self.parent._show_auto_close_message("⚠️ 저장할 썸네일 파일을 먼저 선택해주세요.", QMessageBox.Icon.Warning)
             return
         applied = 0
-        for account_id, _ in self.account_rows:
-            if self.parent._apply_thumbnail_file_to_account(account_id, self.pending_thumbnail_file):
+        for account_id, source_file in self.pending_thumbnail_files.items():
+            if self.parent._apply_thumbnail_file_to_account(account_id, source_file):
                 applied += 1
         if applied > 0:
             self.parent._update_settings_status(f"✅ 썸네일 파일이 {applied}개 계정에 저장되었습니다.")
@@ -8635,7 +8652,7 @@ class NaverBlogGUI(QMainWindow):
     def _account_binding_display_name(self, account_id, mode):
         path = self._account_binding_preview_path(account_id, mode)
         if mode == "keywords":
-            source_path = _read_keyword_source_path(self.data_dir, account_id)
+            source_path = _find_keyword_source_path(self.data_dir, account_id)
             if source_path:
                 return os.path.basename(source_path)
             return _read_keyword_source_name(self.data_dir, account_id)
@@ -8660,7 +8677,7 @@ class NaverBlogGUI(QMainWindow):
 
         target_path = self._account_binding_preview_path(account_id, mode)
         if mode == "keywords":
-            source_path = _read_keyword_source_path(self.data_dir, account_id)
+            source_path = _find_keyword_source_path(self.data_dir, account_id)
             if source_path and os.path.exists(source_path):
                 open_path = os.path.dirname(source_path)
             else:
