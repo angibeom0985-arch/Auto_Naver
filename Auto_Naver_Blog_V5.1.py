@@ -10205,6 +10205,14 @@ class NaverBlogGUI(QMainWindow):
         
         # 자동화 바로 시작 (별도 스레드)
         def run_automation():
+            def _sleep_interruptible(seconds, step=0.1):
+                end_time = time.time() + max(0.0, float(seconds))
+                while time.time() < end_time:
+                    if self.stop_requested or not self.is_running:
+                        return False
+                    time.sleep(min(step, end_time - time.time()))
+                return True
+
             # 무한 반복 (is_running이 False가 될 때까지)
             is_first_run_flag = is_first_start
             registered_accounts = self._get_registered_naver_accounts()
@@ -10281,8 +10289,10 @@ class NaverBlogGUI(QMainWindow):
                     
                     # 중지 후 재시작 시 기존 브라우저 세션을 재사용할 수 있도록 플래그 초기화
                     if self.automation:
-                        self.automation.should_stop = False
+                        self.automation.should_stop = bool(self.stop_requested or not self.is_running)
                         self.automation.should_pause = self.is_paused
+                    if self.stop_requested or not self.is_running:
+                        break
                     
                     # 자동화 실행
                     if not is_first_run_flag:
@@ -10319,7 +10329,8 @@ class NaverBlogGUI(QMainWindow):
                                         self.automation = None
                                 except Exception:
                                     self.automation = None
-                                time.sleep(5)
+                                if not _sleep_interruptible(5):
+                                    break
                                 continue
 
                             self.ui_message_signal.emit(
@@ -10371,7 +10382,8 @@ class NaverBlogGUI(QMainWindow):
                                 self.automation = None
                             
                             # 잠시 대기 후 재시도
-                            time.sleep(5)
+                            if not _sleep_interruptible(5):
+                                break
                             continue
                     
                     self.update_progress_status("✅ 포스팅이 완료되었습니다!")
@@ -10393,7 +10405,8 @@ class NaverBlogGUI(QMainWindow):
                         if not self.automation.recycle_browser_session(retries=2):
                             self.update_progress_status("⚠️ 세션 재생성 실패 - 자동화 인스턴스를 초기화하고 재시도합니다.")
                             self.automation = None
-                            time.sleep(3)
+                            if not _sleep_interruptible(3):
+                                break
                             continue
                     
                     # 남은 키워드 수 확인 및 30개 미만 경고
@@ -10429,7 +10442,8 @@ class NaverBlogGUI(QMainWindow):
                     if self.is_running and not self.is_paused:
                         self.update_progress_status("🔄 2초 후 다음 포스팅을 시작합니다...")
                         print("🔄 2초 후 다음 포스팅을 시작합니다...")
-                        time.sleep(2)
+                        if not _sleep_interruptible(2):
+                            break
                         # 루프 계속 (다시 while 조건 체크 후 automation.run 실행)
                         
                 except Exception as e:
@@ -10454,7 +10468,8 @@ class NaverBlogGUI(QMainWindow):
                     except Exception:
                         pass
                     self.automation = None
-                    time.sleep(5)
+                    if not _sleep_interruptible(5):
+                        break
                     continue
         
         thread = threading.Thread(target=run_automation, daemon=True)
@@ -10465,6 +10480,7 @@ class NaverBlogGUI(QMainWindow):
         self.is_running = False
         self.is_paused = False
         self.stop_requested = True
+        self.stop_countdown()
         
         # 실행 중인 자동화 인스턴스 정지
         if self.automation:
