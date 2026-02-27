@@ -8682,6 +8682,8 @@ class NaverBlogGUI(QMainWindow):
                 open_path = os.path.dirname(source_path)
             else:
                 open_path = os.path.dirname(target_path)
+        elif mode == "thumbnail":
+            open_path = os.path.join(self.data_dir, "setting", "image")
         else:
             open_path = target_path
         os.makedirs(open_path, exist_ok=True)
