@@ -121,6 +121,43 @@ def _account_resource_key(account_id):
     key = _sanitize_profile_name(account_id)
     return key or "default"
 
+def _default_fallback_data_dir():
+    base = (
+        os.environ.get("LOCALAPPDATA")
+        or os.environ.get("APPDATA")
+        or os.path.expanduser("~")
+    )
+    return os.path.join(base, "Auto_Naver")
+
+def _ensure_writable_setting_dir(data_dir):
+    setting_dir = os.path.join(data_dir, "setting")
+    os.makedirs(setting_dir, exist_ok=True)
+    test_file = os.path.join(setting_dir, ".write_test")
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("ok")
+    os.remove(test_file)
+    return setting_dir
+
+def _resolve_runtime_data_dir():
+    if getattr(sys, "frozen", False):
+        candidates = [
+            ("exe", os.path.dirname(sys.executable)),
+            ("localappdata", _default_fallback_data_dir()),
+        ]
+    else:
+        candidates = [("script", os.path.dirname(os.path.abspath(__file__)))]
+
+    for source, path in candidates:
+        try:
+            _ensure_writable_setting_dir(path)
+            return path, source
+        except Exception:
+            continue
+
+    fallback_source, fallback_path = candidates[-1]
+    os.makedirs(os.path.join(fallback_path, "setting"), exist_ok=True)
+    return fallback_path, fallback_source
+
 def _get_account_resource_root(base_dir, account_id, create=False):
     root = os.path.join(base_dir, "setting", "accounts", _account_resource_key(account_id))
     if create:
@@ -626,13 +663,10 @@ class NaverBlogAutomation:
         self.force_account_relogin = False
         self.last_authenticated_naver_id = ""
         
-        # 디렉토리 설정 (배포 exe는 exe 옆 setting 폴더를 항상 사용)
-        if getattr(sys, 'frozen', False):
-            exe_dir = os.path.dirname(sys.executable)
-            self.data_dir = exe_dir
-            os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
-        else:
-            self.data_dir = os.path.dirname(os.path.abspath(__file__))
+        # 디렉토리 설정 (exe 우선, 실패 시 LOCALAPPDATA fallback)
+        self.data_dir, self.data_dir_source = _resolve_runtime_data_dir()
+        if getattr(sys, "frozen", False) and self.data_dir_source != "exe":
+            print(f"⚠️ exe 폴더 쓰기 실패로 데이터 경로를 전환했습니다: {self.data_dir}")
 
         # [긴급 패치] 폴더 구조 자동 복구 (etc 폴더 내 잘못된 위치 수정)
         try:
@@ -6480,15 +6514,12 @@ class NaverBlogGUI(QMainWindow):
         if getattr(sys, 'frozen', False):
             # PyInstaller로 빌드된 경우
             self.base_dir = sys._MEIPASS  # 임시 폴더 (읽기 전용 리소스)
-            exe_dir = os.path.dirname(sys.executable)  # exe 파일이 있는 실제 디렉토리
-
-            # 배포 exe는 exe 위치의 setting 폴더를 항상 데이터 경로로 사용
-            self.data_dir = exe_dir
-            os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
         else:
             # 개발 환경
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.data_dir = self.base_dir
+        self.data_dir, self.data_dir_source = _resolve_runtime_data_dir()
+        if getattr(sys, "frozen", False) and self.data_dir_source != "exe":
+            print(f"⚠️ exe 폴더 쓰기 실패로 데이터 경로를 전환했습니다: {self.data_dir}")
         
         # 초기 크기 및 위치 설정
         self.setGeometry(100, 100, 750, 600)
@@ -6686,6 +6717,12 @@ class NaverBlogGUI(QMainWindow):
         # GUI 구성
         self._create_gui()
         self._apply_config()
+        try:
+            source_label = "EXE" if self.data_dir_source == "exe" else ("LOCALAPPDATA" if self.data_dir_source == "localappdata" else "SCRIPT")
+            setting_path = os.path.join(self.data_dir, "setting")
+            self._update_settings_status(f"📁 설정 경로: {setting_path} ({source_label})")
+        except Exception:
+            pass
     
     def load_config(self):
         """설정 파일 로드 (UTF-8)"""
@@ -10957,13 +10994,11 @@ if __name__ == "__main__":
     # 애플리케이션 아이콘 설정
     if getattr(sys, 'frozen', False):
         base_dir = sys._MEIPASS
-        # EXE 실행 시 쓰기 가능한 데이터 디렉토리 로직과 별개로, 
-        # 마이그레이션은 실제 EXE가 있는 폴더(쓰기 권한 있는 곳)를 기준으로 해야 함
-        exe_dir = os.path.dirname(sys.executable)
-        _migrate_settings_structure(exe_dir)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        _migrate_settings_structure(base_dir)
+
+    runtime_data_dir, _ = _resolve_runtime_data_dir()
+    _migrate_settings_structure(runtime_data_dir)
     
     # 아이콘 경로 변경 (etc 폴더)
     icon_path = os.path.join(base_dir, "setting", "etc", "auto_naver.ico")
