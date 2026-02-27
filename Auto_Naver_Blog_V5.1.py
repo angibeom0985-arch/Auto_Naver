@@ -6340,6 +6340,139 @@ class AccountFileBindingDialog(QDialog):
         self.parent._show_auto_close_message("❌ 썸네일 파일 저장에 실패했습니다.", QMessageBox.Icon.Warning)
 
 
+class RelatedPostsAccountDialog(QDialog):
+    """계정별 관련 글(섹션 제목/블로그 주소) 설정 다이얼로그"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.account_inputs = []
+        self.setWindowTitle("계정별 관련 글 설정")
+        self.setFixedWidth(760)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {NAVER_BG};
+            }}
+            QLabel {{
+                color: {NAVER_TEXT};
+                font-size: 13px;
+            }}
+            QLineEdit {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 6px 10px;
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                font-size: 12px;
+                min-height: 30px;
+            }}
+            QLineEdit:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+            QPushButton {{
+                border: none;
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: bold;
+                color: white;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 10, 18, 10)
+        layout.setSpacing(6)
+
+        slots = self.parent._get_naver_account_slots()
+        visible_row_count = 0
+        for i, slot in enumerate(slots):
+            account_id = str(slot.get("id", "")).strip()
+            account_pw = str(slot.get("pw", "")).strip()
+            if not account_id or not account_pw:
+                continue
+
+            row_frame = QFrame()
+            row_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: #FFFFFF;
+                    border: 1px solid {NAVER_BORDER};
+                    border-radius: 8px;
+                }}
+            """)
+            row_layout = QVBoxLayout(row_frame)
+            row_layout.setContentsMargins(12, 8, 12, 8)
+            row_layout.setSpacing(6)
+
+            account_label = QLabel(f"계정 {i + 1}: {account_id}")
+            account_label.setStyleSheet("font-weight: bold;")
+            row_layout.addWidget(account_label)
+
+            inputs_row = QHBoxLayout()
+            inputs_row.setContentsMargins(0, 0, 0, 0)
+            inputs_row.setSpacing(8)
+
+            title_entry = QLineEdit()
+            title_entry.setPlaceholderText("섹션 제목 (예: 최신 글)")
+            title_entry.setFixedHeight(34)
+
+            blog_entry = QLineEdit()
+            blog_entry.setPlaceholderText("블로그 주소 아이디 (예: dreamroom_official)")
+            blog_entry.setFixedHeight(34)
+
+            title_value, blog_value = self.parent._get_related_posts_values_for_account(account_id)
+            title_entry.setText(title_value)
+            if blog_value.startswith("https://blog.naver.com/"):
+                blog_entry.setText(blog_value.replace("https://blog.naver.com/", "", 1))
+            else:
+                blog_entry.setText(blog_value)
+
+            inputs_row.addWidget(title_entry, 1)
+            inputs_row.addWidget(blog_entry, 1)
+            row_layout.addLayout(inputs_row)
+
+            layout.addWidget(row_frame)
+            self.account_inputs.append((account_id, title_entry, blog_entry))
+            visible_row_count += 1
+
+        if not self.account_inputs:
+            empty_label = QLabel("등록된 네이버 계정이 없습니다. 먼저 계정 정보를 저장해주세요.")
+            empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
+            layout.addWidget(empty_label)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 6, 0, 0)
+        footer.setSpacing(8)
+        info_label = QLabel("네이버 계정별로 관련 글 섹션 제목/블로그 주소를 저장합니다.")
+        info_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        footer.addWidget(info_label)
+        footer.addStretch()
+
+        save_btn = QPushButton("저장 후 닫기")
+        save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.setFixedHeight(36)
+        save_btn.clicked.connect(self.save_and_close)
+        footer.addWidget(save_btn)
+        layout.addLayout(footer)
+
+        row_count = max(visible_row_count, 1)
+        target_height = 46 + (row_count * 84) + 62
+        target_height = max(170, min(target_height, 520))
+        self.setFixedHeight(target_height)
+
+    def save_and_close(self):
+        settings_map = {}
+        for account_id, title_entry, blog_entry in self.account_inputs:
+            title = title_entry.text().strip()
+            blog_address = normalize_blog_address(blog_entry.text().strip())
+            settings_map[account_id] = {
+                "related_posts_title": title,
+                "blog_address": blog_address,
+            }
+        self.parent._save_related_posts_account_settings(settings_map)
+        self.accept()
+
+
 class NaverBlogGUI(QMainWindow):
     """네이버 블로그 자동 포스팅 GUI 메인 클래스"""
     
@@ -8300,6 +8433,25 @@ class NaverBlogGUI(QMainWindow):
 
         related_posts_card.header_layout.insertWidget(1, related_toggle_container)
         related_posts_card.header_layout.insertWidget(2, mode_header_container)
+        related_posts_account_btn = QPushButton("👤 계정별 설정")
+        related_posts_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        related_posts_account_btn.setMinimumHeight(30)
+        related_posts_account_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                border: 2px solid {NAVER_GREEN};
+                border-radius: 8px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_GREEN_LIGHT};
+            }}
+        """)
+        related_posts_account_btn.clicked.connect(self.open_related_posts_accounts_dialog)
+        related_posts_card.header_layout.insertWidget(3, related_posts_account_btn)
         related_posts_card.header_layout.addStretch()
 
         # 2열 그리드 레이아웃 생성
@@ -8607,6 +8759,8 @@ class NaverBlogGUI(QMainWindow):
                 self.naver_account_selector.setCurrentIndex(active_slot)
             self.naver_account_selector.blockSignals(False)
 
+        self._apply_related_posts_ui_for_account(self.config.get("naver_id", ""))
+
     def on_naver_account_selector_changed(self, index):
         try:
             index = int(index)
@@ -8633,6 +8787,72 @@ class NaverBlogGUI(QMainWindow):
             except Exception:
                 account_id = ""
         return account_id
+
+    def _related_posts_default_title(self):
+        mode_value = self.config.get("related_posts_mode", "latest")
+        return "인기 글" if mode_value == "popular" else "최신 글"
+
+    def _get_related_posts_account_settings(self):
+        raw = self.config.get("related_posts_account_settings", {})
+        if not isinstance(raw, dict):
+            return {}
+        cleaned = {}
+        for account_id, item in raw.items():
+            key = str(account_id).strip()
+            if not key or not isinstance(item, dict):
+                continue
+            cleaned[key] = {
+                "related_posts_title": str(item.get("related_posts_title", "")).strip(),
+                "blog_address": normalize_blog_address(str(item.get("blog_address", "")).strip()),
+            }
+        return cleaned
+
+    def _get_related_posts_values_for_account(self, account_id):
+        account_id = str(account_id or "").strip()
+        base_title = str(self.config.get("related_posts_title", "")).strip()
+        if not base_title:
+            base_title = self._related_posts_default_title()
+        base_blog = normalize_blog_address(str(self.config.get("blog_address", "")).strip())
+
+        if not account_id:
+            return base_title, base_blog
+
+        account_map = self._get_related_posts_account_settings()
+        item = account_map.get(account_id, {})
+        title = str(item.get("related_posts_title", "")).strip() or base_title
+        blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip()) or base_blog
+        return title, blog_address
+
+    def _apply_related_posts_ui_for_account(self, account_id):
+        if not hasattr(self, "related_posts_title_entry") or not hasattr(self, "blog_address_entry"):
+            return
+        title, blog_address = self._get_related_posts_values_for_account(account_id)
+        self.related_posts_title_entry.setText(title)
+        if blog_address.startswith("https://blog.naver.com/"):
+            self.blog_address_entry.setText(blog_address.replace("https://blog.naver.com/", "", 1))
+        else:
+            self.blog_address_entry.setText(blog_address)
+        self.config["related_posts_title"] = title
+        self.config["blog_address"] = blog_address
+
+    def _save_related_posts_account_settings(self, settings_map):
+        normalized = {}
+        if isinstance(settings_map, dict):
+            for account_id, item in settings_map.items():
+                key = str(account_id).strip()
+                if not key or not isinstance(item, dict):
+                    continue
+                title = str(item.get("related_posts_title", "")).strip()
+                blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip())
+                normalized[key] = {
+                    "related_posts_title": title,
+                    "blog_address": blog_address,
+                }
+        self.config["related_posts_account_settings"] = normalized
+        self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
+        self.save_config_file()
+        self.update_status_display()
+        self._update_settings_summary()
 
     def _selected_keywords_file(self, create=True):
         account_id = self._selected_naver_account_id()
@@ -8801,6 +9021,11 @@ class NaverBlogGUI(QMainWindow):
         if dialog.exec():
             self._update_settings_status("✅ 네이버 계정 설정이 반영되었습니다.")
 
+    def open_related_posts_accounts_dialog(self):
+        dialog = RelatedPostsAccountDialog(self)
+        if dialog.exec():
+            self._update_settings_status("✅ 계정별 관련 글 설정이 반영되었습니다.")
+
     def open_website_login_dialog(self):
         """웹사이트 로그인 정보 입력 다이얼로그 열기"""
         dialog = WebsiteLoginDialog(self)
@@ -8881,13 +9106,7 @@ class NaverBlogGUI(QMainWindow):
         if "related_posts_enabled" in self.config:
             self.use_related_posts_checkbox.setChecked(bool(self.config.get("related_posts_enabled")))
         if "blog_address" in self.config:
-            blog_address = self.config["blog_address"]
-            # 전체 URL에서 아이디만 추출해서 표시
-            if blog_address.startswith("https://blog.naver.com/"):
-                blog_id = blog_address.replace("https://blog.naver.com/", "")
-                self.blog_address_entry.setText(blog_id)
-            else:
-                self.blog_address_entry.setText(blog_address)
+            self.config["blog_address"] = normalize_blog_address(str(self.config.get("blog_address", "")).strip())
         if "related_posts_title" in self.config:
             self.related_posts_title_entry.setText(self.config["related_posts_title"])
         mode_value = self.config.get("related_posts_mode", "latest")
@@ -8896,6 +9115,7 @@ class NaverBlogGUI(QMainWindow):
                 self.related_posts_mode_popular.setChecked(True)
             else:
                 self.related_posts_mode_latest.setChecked(True)
+        self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
         if hasattr(self, "use_related_posts_checkbox"):
             self.toggle_related_posts()
         
@@ -9884,6 +10104,14 @@ class NaverBlogGUI(QMainWindow):
         self.config["related_posts_title"] = title
         self.config["related_posts_mode"] = mode_value
         self.config["related_posts_enabled"] = enabled
+        account_id = self._selected_naver_account_id()
+        if account_id:
+            account_map = self._get_related_posts_account_settings()
+            account_map[account_id] = {
+                "related_posts_title": title,
+                "blog_address": blog_address,
+            }
+            self.config["related_posts_account_settings"] = account_map
         
         status_msg = f"📚 '함께 보면 좋은 글' 설정이 저장되었습니다"
         if not enabled:
@@ -9996,6 +10224,9 @@ class NaverBlogGUI(QMainWindow):
                     self.config["active_naver_account_slot"] = slot_idx
                     self.config["naver_id"] = cycle_naver_id
                     self.config["naver_pw"] = cycle_naver_pw
+                    related_posts_title, blog_address = self._get_related_posts_values_for_account(cycle_naver_id)
+                    self.config["related_posts_title"] = related_posts_title
+                    self.config["blog_address"] = blog_address
                     self.update_progress_status(f"👤 작업 계정: 계정 {slot_idx + 1} ({cycle_naver_id})")
                     
                     external_link = self.link_url_entry.text() if self.use_link_checkbox.isChecked() else ""
@@ -10003,9 +10234,6 @@ class NaverBlogGUI(QMainWindow):
                     
                     # 자동화 인스턴스가 없을 때만 생성 (기존 브라우저 재사용)
                     if not self.automation:
-                        # 블로그 주소 처음 (아이디만 있으면 전체 URL로 변환)
-                        blog_address = self.config.get("blog_address", "")
-                        related_posts_title = self.config.get("related_posts_title", "함께 보면 좋은 글")
                         posting_method = "home" if self.config.get("posting_method") == "home" else "search"
 
                         self.automation = NaverBlogAutomation(
@@ -10032,8 +10260,6 @@ class NaverBlogGUI(QMainWindow):
                             print("⚠️ 자동화 인스턴스가 없어서 재생성했습니다")
                     else:
                         # 기존 인스턴스 설정 동기화 (입력값 변경 반영)
-                        blog_address = self.config.get("blog_address", "")
-                        related_posts_title = self.config.get("related_posts_title", "함께 보면 좋은 글")
                         posting_method = "home" if self.config.get("posting_method") == "home" else "search"
 
                         self.automation.update_naver_account(
