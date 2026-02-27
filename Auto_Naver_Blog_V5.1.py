@@ -626,22 +626,11 @@ class NaverBlogAutomation:
         self.force_account_relogin = False
         self.last_authenticated_naver_id = ""
         
-        # 디렉토리 설정 (exe 실행 시 고려)
+        # 디렉토리 설정 (배포 exe는 exe 옆 setting 폴더를 항상 사용)
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
-            # 쓰기 권한 테스트
-            try:
-                test_dir = os.path.join(exe_dir, "setting")
-                os.makedirs(test_dir, exist_ok=True)
-                test_file = os.path.join(test_dir, ".write_test")
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-                self.data_dir = exe_dir
-            except (PermissionError, OSError):
-                import pathlib
-                self.data_dir = str(pathlib.Path.home() / "Documents" / "Auto_Naver")
-                os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
+            self.data_dir = exe_dir
+            os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
         else:
             self.data_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -1436,7 +1425,7 @@ class NaverBlogAutomation:
             self._wait_if_paused()
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            result_folder = os.path.join("setting", "result")
+            result_folder = os.path.join(self.data_dir, "setting", "result")
             os.makedirs(result_folder, exist_ok=True)
 
             # 원문 저장 (Gemini 복사본)
@@ -2543,7 +2532,7 @@ class NaverBlogAutomation:
             )
             
             # 이미지 저장
-            result_folder = os.path.join("setting", "result")
+            result_folder = os.path.join(self.data_dir, "setting", "result")
             os.makedirs(result_folder, exist_ok=True)
             
             # 파일명 생성 (키워드 사용)
@@ -2612,7 +2601,7 @@ class NaverBlogAutomation:
             print(f"VIDEO: 동영상 생성 시작 (이미지: {thumbnail_path})")
             
             # 결과 파일 경로 설정
-            result_folder = os.path.join("setting", "result")
+            result_folder = os.path.join(self.data_dir, "setting", "result")
             os.makedirs(result_folder, exist_ok=True)
             
             # 파일명 생성 (썸네일과 동일한 이름으로)
@@ -6492,23 +6481,10 @@ class NaverBlogGUI(QMainWindow):
             # PyInstaller로 빌드된 경우
             self.base_dir = sys._MEIPASS  # 임시 폴더 (읽기 전용 리소스)
             exe_dir = os.path.dirname(sys.executable)  # exe 파일이 있는 실제 디렉토리
-            
-            # 쓰기 권한 테스트
-            try:
-                test_dir = os.path.join(exe_dir, "setting")
-                os.makedirs(test_dir, exist_ok=True)
-                # 테스트 파일 생성 시도
-                test_file = os.path.join(test_dir, ".write_test")
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-                self.data_dir = exe_dir  # 쓰기 가능
-            except (PermissionError, OSError):
-                # 쓰기 권한 없으면 사용자 문서 폴더 사용
-                import pathlib
-                self.data_dir = str(pathlib.Path.home() / "Documents" / "Auto_Naver")
-                os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
-                print(f"⚠️ exe 위치에 쓰기 권한이 없어 설정 폴더를 사용합니다: {self.data_dir}")
+
+            # 배포 exe는 exe 위치의 setting 폴더를 항상 데이터 경로로 사용
+            self.data_dir = exe_dir
+            os.makedirs(os.path.join(self.data_dir, "setting"), exist_ok=True)
         else:
             # 개발 환경
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -8903,13 +8879,13 @@ class NaverBlogGUI(QMainWindow):
             else:
                 open_path = os.path.dirname(target_path)
         elif mode == "thumbnail":
-            open_path = os.path.join(self.data_dir, "setting", "image")
+            open_path = target_path
         else:
             open_path = target_path
         os.makedirs(open_path, exist_ok=True)
         try:
             if platform.system() == "Windows":
-                subprocess.Popen(f'explorer "{os.path.abspath(open_path)}"')
+                subprocess.Popen(["explorer", os.path.abspath(open_path)])
             elif platform.system() == "Darwin":
                 subprocess.run(["open", open_path])
             else:
@@ -9888,7 +9864,7 @@ class NaverBlogGUI(QMainWindow):
             try:
                 if platform.system() == 'Windows':
                     # explorer 명령어로 명확하게 폴더 열기
-                    subprocess.Popen(f'explorer "{os.path.abspath(file_path)}"')
+                    subprocess.Popen(["explorer", os.path.abspath(file_path)])
                 elif platform.system() == 'Darwin':  # macOS
                     subprocess.run(['open', file_path])
                 else:  # Linux
