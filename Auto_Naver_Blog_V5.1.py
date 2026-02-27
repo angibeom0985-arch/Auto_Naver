@@ -174,6 +174,13 @@ def _resolve_keyword_source_meta_path(base_dir, account_id, create=False):
         os.makedirs(keyword_dir, exist_ok=True)
     return os.path.join(keyword_dir, "keywords_source_name.txt")
 
+def _resolve_keyword_source_path_meta_path(base_dir, account_id, create=False):
+    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
+    keyword_dir = os.path.dirname(keywords_file)
+    if create:
+        os.makedirs(keyword_dir, exist_ok=True)
+    return os.path.join(keyword_dir, "keywords_source_path.txt")
+
 def _read_keyword_source_name(base_dir, account_id):
     meta_path = _resolve_keyword_source_meta_path(base_dir, account_id, create=False)
     try:
@@ -194,6 +201,27 @@ def _write_keyword_source_name(base_dir, account_id, source_filename):
     try:
         with open(meta_path, "w", encoding="utf-8") as f:
             f.write(safe_name)
+    except Exception:
+        pass
+
+def _read_keyword_source_path(base_dir, account_id):
+    meta_path = _resolve_keyword_source_path_meta_path(base_dir, account_id, create=False)
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                path = (f.read() or "").strip()
+                if path:
+                    return path
+    except Exception:
+        pass
+    return ""
+
+def _write_keyword_source_path(base_dir, account_id, source_path):
+    meta_path = _resolve_keyword_source_path_meta_path(base_dir, account_id, create=True)
+    safe_path = str(source_path or "").strip()
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            f.write(safe_path)
     except Exception:
         pass
 
@@ -6239,7 +6267,11 @@ class AccountFileBindingDialog(QDialog):
 
     def _pick_for_account(self, account_id, path_label):
         if self.mode == "keywords":
-            initial_dir = os.path.join(self.parent.data_dir, "setting", "keywords")
+            source_path = _read_keyword_source_path(self.parent.data_dir, account_id)
+            if source_path and os.path.exists(source_path):
+                initial_dir = os.path.dirname(source_path)
+            else:
+                initial_dir = os.path.join(self.parent.data_dir, "setting", "keywords")
             os.makedirs(initial_dir, exist_ok=True)
             selected, _ = QFileDialog.getOpenFileName(
                 self, "키워드 파일 선택", initial_dir, "Text Files (*.txt);;All Files (*)"
@@ -8603,6 +8635,9 @@ class NaverBlogGUI(QMainWindow):
     def _account_binding_display_name(self, account_id, mode):
         path = self._account_binding_preview_path(account_id, mode)
         if mode == "keywords":
+            source_path = _read_keyword_source_path(self.data_dir, account_id)
+            if source_path:
+                return os.path.basename(source_path)
             return _read_keyword_source_name(self.data_dir, account_id)
         if mode == "thumbnail":
             try:
@@ -8624,7 +8659,14 @@ class NaverBlogGUI(QMainWindow):
         import platform
 
         target_path = self._account_binding_preview_path(account_id, mode)
-        open_path = target_path if mode == "thumbnail" else os.path.dirname(target_path)
+        if mode == "keywords":
+            source_path = _read_keyword_source_path(self.data_dir, account_id)
+            if source_path and os.path.exists(source_path):
+                open_path = os.path.dirname(source_path)
+            else:
+                open_path = os.path.dirname(target_path)
+        else:
+            open_path = target_path
         os.makedirs(open_path, exist_ok=True)
         try:
             if platform.system() == "Windows":
@@ -8644,6 +8686,7 @@ class NaverBlogGUI(QMainWindow):
             shutil.copy2(source_file, target_file)
             source_name = os.path.basename(source_file)
             _write_keyword_source_name(self.data_dir, account_id, source_name)
+            _write_keyword_source_path(self.data_dir, account_id, source_file)
 
             # 새 키워드 파일로 교체 시 used_<원본파일명>.txt를 초기화
             selected_used_file = _resolve_used_keyword_log_path(self.data_dir, account_id, create=True)
