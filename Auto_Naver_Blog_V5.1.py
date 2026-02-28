@@ -3850,8 +3850,9 @@ class NaverBlogAutomation:
                 self._update_status("❌ 브라우저 세션이 유실되었습니다. 재시작이 필요합니다.")
                 return False
 
-            # 블로그 홈 URL (이곳에서 글쓰기 버튼 클릭 진행)
+            # 블로그 홈 URL (1차 글쓰기 버튼 탐색)
             home_url = "https://blog.naver.com/"
+            section_home_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage=1&groupId=0"
             self.driver.get(home_url)
             
             self._sleep_with_checks(3)
@@ -3880,57 +3881,59 @@ class NaverBlogAutomation:
                 (By.XPATH, "//a[contains(@class,'item') and contains(@href,'GoBlogWrite.naver') and contains(normalize-space(.),'글쓰기')]")
             ]
             
-            write_clicked = False
-            for frame_mode in ("default", "mainFrame"):
-                if write_clicked:
-                    break
-                try:
-                    self.driver.switch_to.default_content()
-                    if frame_mode == "mainFrame":
-                        try:
-                            mf = WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((By.ID, "mainFrame"))
-                            )
-                            self.driver.switch_to.frame(mf)
-                        except Exception:
-                            continue
-                    
-                    for by, locator in write_btn_locators:
-                        try:
-                            write_btn = WebDriverWait(self.driver, 6).until(
-                                EC.presence_of_element_located((by, locator))
-                            )
-                            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", write_btn)
-                            try:
-                                WebDriverWait(self.driver, 3).until(
-                                    EC.element_to_be_clickable((by, locator))
-                                )
-                                write_btn.click()
-                            except Exception:
-                                self.driver.execute_script("arguments[0].click();", write_btn)
-                            self._sleep_with_checks(3)
-                            
-                            # 새 창이 열렸다면 전환
-                            if len(self.driver.window_handles) > 1:
-                                self.driver.switch_to.default_content()
-                                self.driver.switch_to.window(self.driver.window_handles[-1])
-                                self._sleep_with_checks(2)
-                            write_clicked = True
-                            break
-                        except Exception:
-                            continue
-                finally:
+            def _try_click_write_button():
+                for frame_mode in ("default", "mainFrame"):
                     try:
                         self.driver.switch_to.default_content()
-                    except Exception:
-                        pass
+                        if frame_mode == "mainFrame":
+                            try:
+                                mf = WebDriverWait(self.driver, 5).until(
+                                    EC.presence_of_element_located((By.ID, "mainFrame"))
+                                )
+                                self.driver.switch_to.frame(mf)
+                            except Exception:
+                                continue
+                        
+                        for by, locator in write_btn_locators:
+                            try:
+                                write_btn = WebDriverWait(self.driver, 6).until(
+                                    EC.presence_of_element_located((by, locator))
+                                )
+                                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", write_btn)
+                                try:
+                                    WebDriverWait(self.driver, 3).until(
+                                        EC.element_to_be_clickable((by, locator))
+                                    )
+                                    write_btn.click()
+                                except Exception:
+                                    self.driver.execute_script("arguments[0].click();", write_btn)
+                                self._sleep_with_checks(3)
+                                
+                                # 새 창이 열렸다면 전환
+                                if len(self.driver.window_handles) > 1:
+                                    self.driver.switch_to.default_content()
+                                    self.driver.switch_to.window(self.driver.window_handles[-1])
+                                    self._sleep_with_checks(2)
+                                return True
+                            except Exception:
+                                continue
+                    finally:
+                        try:
+                            self.driver.switch_to.default_content()
+                        except Exception:
+                            pass
+                return False
+            
+            write_clicked = _try_click_write_button()
+            if not write_clicked:
+                self._update_status("⚠️ 글쓰기 버튼 1차 실패 -> section.blog.naver.com 재시도")
+                self.driver.get(section_home_url)
+                self._sleep_with_checks(3)
+                write_clicked = _try_click_write_button()
             
             if not write_clicked:
-                self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속")
-                # 직접 접속 시도 (현재 탭)
-                direct_url = f"https://blog.naver.com/{self.naver_id}/PostWriteForm.naver"
-                self.driver.get(direct_url)
-                self._sleep_with_checks(3)
+                self._update_status("❌ 글쓰기 버튼을 찾지 못했습니다. 포스팅을 중단합니다.")
+                return False
 
             
             # mainFrame으로 전환
