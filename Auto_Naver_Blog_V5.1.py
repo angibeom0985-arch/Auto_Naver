@@ -3851,7 +3851,7 @@ class NaverBlogAutomation:
                 return False
 
             # 블로그 홈 URL (이곳에서 글쓰기 버튼 클릭 진행)
-            home_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage=1&groupId=0"
+            home_url = "https://blog.naver.com/"
             self.driver.get(home_url)
             
             self._sleep_with_checks(3)
