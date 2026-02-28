@@ -3872,31 +3872,58 @@ class NaverBlogAutomation:
             
             # 4. 글쓰기 버튼 클릭
             # self._update_status("🖊️ 글쓰기 버튼 찾는 중...")
-            write_btn_selectors = [
-                "a.item[ng-href*='GoBlogWrite']",
-                "a[href*='GoBlogWrite.naver']",
-                ".sp_common.icon_write"
+            write_btn_locators = [
+                (By.CSS_SELECTOR, "a.item[ng-href='https://blog.naver.com/GoBlogWrite.naver']"),
+                (By.CSS_SELECTOR, "a.item[href*='GoBlogWrite.naver'][target='_blank']"),
+                (By.CSS_SELECTOR, "a.item[href*='GoBlogWrite.naver']"),
+                (By.XPATH, "//a[contains(@ng-click,'write') and contains(@href,'GoBlogWrite.naver')]"),
+                (By.XPATH, "//a[contains(@class,'item') and contains(@href,'GoBlogWrite.naver') and contains(normalize-space(.),'글쓰기')]")
             ]
             
             write_clicked = False
-            for selector in write_btn_selectors:
+            for frame_mode in ("default", "mainFrame"):
+                if write_clicked:
+                    break
                 try:
-                    write_btn = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    if write_btn:
-                        write_btn.click()
-                        self._sleep_with_checks(3)
-                        # self._update_status("✅ 블로그 홈에서 글쓰기 버튼 클릭 성공")
-                        
-                        # 새 창이 열렸다면 전환
-                        if len(self.driver.window_handles) > 1:
-                            self.driver.switch_to.window(self.driver.window_handles[-1])
-                            self._sleep_with_checks(2)
-                        write_clicked = True
-                        break
-                except:
-                    continue
+                    self.driver.switch_to.default_content()
+                    if frame_mode == "mainFrame":
+                        try:
+                            mf = WebDriverWait(self.driver, 5).until(
+                                EC.presence_of_element_located((By.ID, "mainFrame"))
+                            )
+                            self.driver.switch_to.frame(mf)
+                        except Exception:
+                            continue
+                    
+                    for by, locator in write_btn_locators:
+                        try:
+                            write_btn = WebDriverWait(self.driver, 6).until(
+                                EC.presence_of_element_located((by, locator))
+                            )
+                            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", write_btn)
+                            try:
+                                WebDriverWait(self.driver, 3).until(
+                                    EC.element_to_be_clickable((by, locator))
+                                )
+                                write_btn.click()
+                            except Exception:
+                                self.driver.execute_script("arguments[0].click();", write_btn)
+                            self._sleep_with_checks(3)
+                            
+                            # 새 창이 열렸다면 전환
+                            if len(self.driver.window_handles) > 1:
+                                self.driver.switch_to.default_content()
+                                self.driver.switch_to.window(self.driver.window_handles[-1])
+                                self._sleep_with_checks(2)
+                            write_clicked = True
+                            break
+                        except Exception:
+                            continue
+                finally:
+                    try:
+                        self.driver.switch_to.default_content()
+                    except Exception:
+                        pass
             
             if not write_clicked:
                 self._update_status("⚠️ 글쓰기 버튼 실패 -> URL 직접 접속")
