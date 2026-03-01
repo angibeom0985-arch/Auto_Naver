@@ -1267,10 +1267,22 @@ class NaverBlogAutomation:
         """윈도우 창 제목으로 HWND 검색"""
         try:
             import ctypes
+            from ctypes import wintypes
             user32 = ctypes.windll.user32
             results = []
 
-            @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+            # 64-bit Windows 안전 타입으로 콜백 시그니처를 고정한다.
+            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+            user32.EnumWindows.restype = wintypes.BOOL
+            user32.IsWindowVisible.argtypes = [wintypes.HWND]
+            user32.IsWindowVisible.restype = wintypes.BOOL
+            user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+            user32.GetWindowTextLengthW.restype = ctypes.c_int
+            user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+            user32.GetWindowTextW.restype = ctypes.c_int
+
+            @WNDENUMPROC
             def enum_proc(hwnd, lparam):
                 if user32.IsWindowVisible(hwnd):
                     length = user32.GetWindowTextLengthW(hwnd)
@@ -1293,18 +1305,30 @@ class NaverBlogAutomation:
     def _is_window_alive(self, hwnd):
         try:
             import ctypes
+            from ctypes import wintypes
             user32 = ctypes.windll.user32
-            return bool(user32.IsWindow(hwnd)) and bool(user32.IsWindowVisible(hwnd))
+            user32.IsWindow.argtypes = [wintypes.HWND]
+            user32.IsWindow.restype = wintypes.BOOL
+            user32.IsWindowVisible.argtypes = [wintypes.HWND]
+            user32.IsWindowVisible.restype = wintypes.BOOL
+            hwnd_obj = wintypes.HWND(int(hwnd))
+            return bool(user32.IsWindow(hwnd_obj)) and bool(user32.IsWindowVisible(hwnd_obj))
         except Exception:
             return False
 
     def _focus_window(self, hwnd):
         try:
             import ctypes
+            from ctypes import wintypes
             user32 = ctypes.windll.user32
             SW_RESTORE = 9
-            user32.ShowWindow(hwnd, SW_RESTORE)
-            user32.SetForegroundWindow(hwnd)
+            user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+            user32.ShowWindow.restype = wintypes.BOOL
+            user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+            user32.SetForegroundWindow.restype = wintypes.BOOL
+            hwnd_obj = wintypes.HWND(int(hwnd))
+            user32.ShowWindow(hwnd_obj, SW_RESTORE)
+            user32.SetForegroundWindow(hwnd_obj)
             return True
         except Exception:
             return False
