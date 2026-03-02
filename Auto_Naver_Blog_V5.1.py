@@ -1031,10 +1031,14 @@ class NaverBlogAutomation:
         return any(start <= first <= end for start, end in emoji_ranges)
 
     def _format_status_message(self, message: str) -> str:
-        """모든 로그 메시지를 이모지로 시작하도록 정리"""
-        if self._message_starts_with_emoji(message):
-            return message
-        return f"💬 {message}"
+        """모든 로그 메시지 앞에 간단한 날짜/시간을 붙이고 이모지를 정리"""
+        text = str(message) if message is not None else ""
+        if self._message_starts_with_emoji(text):
+            body = text
+        else:
+            body = f"💬 {text}"
+        timestamp = datetime.now().strftime("%m-%d %H:%M")
+        return f"[{timestamp}] {body}"
 
     def _update_status(self, message, overwrite=False):
         """상태 메시지 업데이트 (중복 방지)"""
