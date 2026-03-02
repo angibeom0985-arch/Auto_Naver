@@ -329,6 +329,103 @@ def _resolve_account_thumbnail_dir(base_dir, account_id, create=False):
                 pass
     return thumbnail_dir
 
+def _resolve_thumbnail_source_name_meta_path(base_dir, account_id, create=False):
+    thumbnail_dir = _resolve_account_thumbnail_dir(base_dir, account_id, create=create)
+    return os.path.join(thumbnail_dir, "thumbnail_source_name.txt")
+
+def _resolve_thumbnail_source_path_meta_path(base_dir, account_id, create=False):
+    thumbnail_dir = _resolve_account_thumbnail_dir(base_dir, account_id, create=create)
+    return os.path.join(thumbnail_dir, "thumbnail_source_path.txt")
+
+def _read_thumbnail_source_name(base_dir, account_id):
+    meta_path = _resolve_thumbnail_source_name_meta_path(base_dir, account_id, create=False)
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                name = (f.read() or "").strip()
+                if name:
+                    return os.path.basename(name)
+    except Exception:
+        pass
+    return ""
+
+def _write_thumbnail_source_name(base_dir, account_id, source_filename):
+    meta_path = _resolve_thumbnail_source_name_meta_path(base_dir, account_id, create=True)
+    safe_name = os.path.basename(str(source_filename or "").strip())
+    if not safe_name:
+        return
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            f.write(safe_name)
+    except Exception:
+        pass
+
+def _read_thumbnail_source_path(base_dir, account_id):
+    meta_path = _resolve_thumbnail_source_path_meta_path(base_dir, account_id, create=False)
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                path = (f.read() or "").strip()
+                if path:
+                    return path
+    except Exception:
+        pass
+    return ""
+
+def _write_thumbnail_source_path(base_dir, account_id, source_path):
+    meta_path = _resolve_thumbnail_source_path_meta_path(base_dir, account_id, create=True)
+    safe_path = str(source_path or "").strip()
+    if not safe_path:
+        return
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            f.write(safe_path)
+    except Exception:
+        pass
+
+def _find_thumbnail_source_path(base_dir, account_id, create=False):
+    thumbnail_dir = _resolve_account_thumbnail_dir(base_dir, account_id, create=create)
+
+    def _is_valid_jpg(path):
+        low = str(path or "").lower()
+        return os.path.isfile(path) and low.endswith((".jpg", ".jpeg"))
+
+    saved_path = _read_thumbnail_source_path(base_dir, account_id)
+    if _is_valid_jpg(saved_path):
+        return saved_path
+
+    source_name = _read_thumbnail_source_name(base_dir, account_id)
+    if source_name:
+        for root in (
+            os.path.join(base_dir, "setting", "image"),
+            thumbnail_dir,
+        ):
+            candidate = os.path.join(root, source_name)
+            if _is_valid_jpg(candidate):
+                _write_thumbnail_source_path(base_dir, account_id, candidate)
+                return candidate
+
+    for root in (thumbnail_dir, os.path.join(base_dir, "setting", "image")):
+        try:
+            if not os.path.isdir(root):
+                continue
+            candidates = [
+                os.path.join(root, n)
+                for n in os.listdir(root)
+                if n.lower().endswith((".jpg", ".jpeg"))
+            ]
+            if not candidates:
+                continue
+            candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            chosen = candidates[0]
+            _write_thumbnail_source_name(base_dir, account_id, os.path.basename(chosen))
+            _write_thumbnail_source_path(base_dir, account_id, chosen)
+            return chosen
+        except Exception:
+            continue
+
+    return ""
+
 def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
     """썸네일 렌더링용 폰트 후보 목록(우선순위 포함)"""
     font_candidates = []
@@ -2859,7 +2956,7 @@ class NaverBlogAutomation:
             return ""
 
     def create_thumbnail(self, title):
-        """setting/image 폴더의 jpg를 배경으로 300x300 썸네일 생성"""
+        """계정별로 연동된 JPG(또는 image 폴더 JPG)를 배경으로 300x300 썸네일 생성"""
         try:
         # 썸네일 기능은 항상 ON
 
@@ -2874,23 +2971,15 @@ class NaverBlogAutomation:
             
             self._update_status("🎨 썸네일 생성 중...")
             
-            # setting/image 폴더의 jpg 파일 찾기
             image_folder = _resolve_account_thumbnail_dir(self.data_dir, self.naver_id, create=True)
             self._update_status(f"📁 이미지 폴더 경로: {image_folder}")
-            if not os.path.exists(image_folder):
-                self._update_status(f"⚠️ {image_folder} 폴더가 없습니다.")
+            source_image_path = _find_thumbnail_source_path(self.data_dir, self.naver_id, create=True)
+            if not source_image_path:
+                self._update_status(f"⚠️ 계정({self.naver_id or 'default'})에 연동된 JPG를 찾지 못했습니다.")
+                self._update_status(f"   - 계정 폴더: {image_folder}")
+                self._update_status(f"   - 공용 폴더: {os.path.join(self.data_dir, 'setting', 'image')}")
                 return None
-            
-            # jpg 파일 검색
-            jpg_files = [f for f in os.listdir(image_folder) if f.lower().endswith('.jpg')]
-            
-            if not jpg_files:
-                self._update_status(f"⚠️ {image_folder} 폴더에 jpg 파일이 없습니다.")
-                return None
-            
-            # 첫 번째 jpg 파일 사용
-            source_image_path = os.path.join(image_folder, jpg_files[0])
-            self._update_status(f"📷 배경 이미지: {jpg_files[0]}")
+            self._update_status(f"📷 배경 이미지: {os.path.basename(source_image_path)}")
             
             # 이미지 저장
             result_folder = os.path.join(self.data_dir, "setting", "result")
@@ -7324,13 +7413,7 @@ class ThumbnailManagerDialog(QDialog):
 
     def _pick_source_image(self):
         try:
-            if not os.path.isdir(self.image_folder):
-                return ""
-            jpg_files = [f for f in os.listdir(self.image_folder) if f.lower().endswith(".jpg")]
-            if not jpg_files:
-                return ""
-            jpg_files.sort()
-            return os.path.join(self.image_folder, jpg_files[0])
+            return _find_thumbnail_source_path(self.parent.data_dir, self.account_id, create=True)
         except Exception:
             return ""
 
@@ -10106,17 +10189,9 @@ class NaverBlogGUI(QMainWindow):
                 return os.path.basename(source_path)
             return _read_keyword_source_name(self.data_dir, account_id)
         if mode == "thumbnail":
-            try:
-                if os.path.isdir(path):
-                    candidates = [
-                        n for n in os.listdir(path)
-                        if n.lower().endswith((".jpg", ".jpeg"))
-                    ]
-                    if candidates:
-                        candidates.sort(key=lambda n: os.path.getmtime(os.path.join(path, n)), reverse=True)
-                        return candidates[0]
-            except Exception:
-                pass
+            source_path = _find_thumbnail_source_path(self.data_dir, account_id, create=True)
+            if source_path:
+                return os.path.basename(source_path)
         name = os.path.basename(path.rstrip("\\/"))
         return name or path
 
@@ -10132,7 +10207,8 @@ class NaverBlogGUI(QMainWindow):
             else:
                 open_path = os.path.dirname(target_path)
         elif mode == "thumbnail":
-            open_path = target_path
+            source_path = _find_thumbnail_source_path(self.data_dir, account_id, create=True)
+            open_path = os.path.dirname(source_path) if source_path else target_path
         else:
             open_path = target_path
         os.makedirs(open_path, exist_ok=True)
@@ -10192,7 +10268,10 @@ class NaverBlogGUI(QMainWindow):
                         pass
 
             target_name = os.path.basename(source_file)
-            shutil.copy2(source_file, os.path.join(target_dir, target_name))
+            target_path = os.path.join(target_dir, target_name)
+            shutil.copy2(source_file, target_path)
+            _write_thumbnail_source_name(self.data_dir, account_id, target_name)
+            _write_thumbnail_source_path(self.data_dir, account_id, source_file)
             self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 적용 완료: {target_name}")
             self.update_status_display()
             return True
@@ -10566,20 +10645,12 @@ class NaverBlogGUI(QMainWindow):
         self.interval_label.setText(f"⏱️ 발행 간격: {interval_text}분")
         
         # 썸네일 폴더 JPG 존재 여부 상태
-        thumbnail_dir = self._selected_thumbnail_dir(create=True)
-        has_jpg = False
-        try:
-            if os.path.isdir(thumbnail_dir):
-                for name in os.listdir(thumbnail_dir):
-                    lower = name.lower()
-                    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
-                        has_jpg = True
-                        break
-        except Exception:
-            has_jpg = False
+        account_id = self._selected_naver_account_id()
+        selected_jpg = _find_thumbnail_source_path(self.data_dir, account_id, create=True)
+        has_jpg = bool(selected_jpg)
 
         if has_jpg:
-            self.thumbnail_status_label.setText("🖼️ 썸네일: JPG 있음")
+            self.thumbnail_status_label.setText(f"🖼️ 썸네일: {os.path.basename(selected_jpg)}")
             self.thumbnail_setup_btn.setText("설정하기")
             self.thumbnail_setup_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -11425,19 +11496,19 @@ class NaverBlogGUI(QMainWindow):
         # 썸네일 JPG 파일 존재 확인 (필수)
         account_id = self._selected_naver_account_id()
         thumbnail_dir = self._selected_thumbnail_dir(create=True)
+        linked_jpg = _find_thumbnail_source_path(self.data_dir, account_id, create=True)
         try:
-            jpg_files = []
-            if os.path.isdir(thumbnail_dir):
-                for name in os.listdir(thumbnail_dir):
-                    lower = name.lower()
-                    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
-                        jpg_files.append(name)
-            if not jpg_files:
-                self.show_message("⚠️ 경고", f"썸네일 폴더에 JPG 파일이 없습니다.\n계정({account_id or 'default'}) 전용 폴더에 JPG를 추가해주세요.\n{thumbnail_dir}", "warning")
+            if not linked_jpg:
+                common_dir = os.path.join(self.data_dir, "setting", "image")
+                self.show_message(
+                    "⚠️ 경고",
+                    f"연동된 JPG 파일을 찾을 수 없습니다.\n계정({account_id or 'default'})에 JPG를 다시 연결해주세요.\n- 계정 폴더: {thumbnail_dir}\n- 공용 폴더: {common_dir}",
+                    "warning"
+                )
                 _reset_start_state()
                 return
         except Exception:
-            self.show_message("⚠️ 경고", f"썸네일 폴더 확인 중 오류가 발생했습니다.\n{thumbnail_dir}", "warning")
+            self.show_message("⚠️ 경고", f"썸네일 파일 확인 중 오류가 발생했습니다.\n{thumbnail_dir}", "warning")
             _reset_start_state()
             return
 
