@@ -414,6 +414,9 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     cfg_text_bg = str((config or {}).get("thumbnail_text_bg", "auto")).strip().lower()
     if cfg_text_bg not in ("none", "auto", "white", "black", "yellow"):
         cfg_text_bg = "auto"
+    cfg_border = str((config or {}).get("thumbnail_text_border_color", "auto")).strip().lower()
+    if cfg_border not in ("none", "auto", "white", "black", "yellow", "red", "blue", "green"):
+        cfg_border = "auto"
 
     img = Image.open(source_image_path).resize((300, 300), Image.Resampling.LANCZOS)
     draw = ImageDraw.Draw(img)
@@ -512,6 +515,21 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         text_fill = (245, 245, 245)
         stroke_fill = (20, 20, 20)
 
+    border_color_map = {
+        "white": (245, 245, 245),
+        "black": (20, 20, 20),
+        "yellow": (255, 235, 59),
+        "red": (229, 57, 53),
+        "blue": (30, 136, 229),
+        "green": (67, 160, 71),
+    }
+    if cfg_border == "none":
+        stroke_width = 0
+    else:
+        stroke_width = 2
+        if cfg_border != "auto":
+            stroke_fill = border_color_map.get(cfg_border, stroke_fill)
+
     bg_fill = None
     if cfg_text_bg == "auto":
         bg_fill = (255, 255, 255, 190) if mean_luma < 150 else (0, 0, 0, 150)
@@ -546,7 +564,7 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         font=font,
         align="center",
         spacing=line_spacing,
-        stroke_width=2,
+        stroke_width=stroke_width,
         stroke_fill=stroke_fill,
     )
 
@@ -6654,14 +6672,26 @@ class ThumbnailManagerDialog(QDialog):
         self.text_bg_combo.addItem("노랑", "yellow")
         form.addWidget(self.text_bg_combo, 2, 1, 1, 2)
 
-        form.addWidget(QLabel("폰트 선택"), 3, 0)
+        form.addWidget(QLabel("테두리색"), 3, 0)
+        self.text_border_combo = QComboBox()
+        self.text_border_combo.addItem("없음", "none")
+        self.text_border_combo.addItem("자동", "auto")
+        self.text_border_combo.addItem("흰색", "white")
+        self.text_border_combo.addItem("검정", "black")
+        self.text_border_combo.addItem("노랑", "yellow")
+        self.text_border_combo.addItem("빨강", "red")
+        self.text_border_combo.addItem("파랑", "blue")
+        self.text_border_combo.addItem("초록", "green")
+        form.addWidget(self.text_border_combo, 3, 1, 1, 2)
+
+        form.addWidget(QLabel("폰트 선택"), 4, 0)
         self.font_combo = QComboBox()
-        form.addWidget(self.font_combo, 3, 1)
+        form.addWidget(self.font_combo, 4, 1)
 
         refresh_btn = QPushButton("폰트 새로고침")
         refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         refresh_btn.clicked.connect(self.refresh_fonts)
-        form.addWidget(refresh_btn, 3, 2)
+        form.addWidget(refresh_btn, 4, 2)
 
         fav_layout = QHBoxLayout()
         fav_layout.setSpacing(8)
@@ -6675,7 +6705,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
         fav_layout.addWidget(self.font_fav_remove_btn)
         fav_layout.addStretch()
-        form.addLayout(fav_layout, 4, 0, 1, 3)
+        form.addLayout(fav_layout, 5, 0, 1, 3)
 
         left_layout.addLayout(form)
         left_layout.addStretch()
@@ -6736,6 +6766,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_size_spin.valueChanged.connect(self._schedule_preview_update)
         self.font_bold_checkbox.stateChanged.connect(self._schedule_preview_update)
         self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.text_border_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.font_combo.currentIndexChanged.connect(self._schedule_preview_update)
 
     def _schedule_preview_update(self):
@@ -6752,6 +6783,11 @@ class ThumbnailManagerDialog(QDialog):
         for i in range(self.text_bg_combo.count()):
             if self.text_bg_combo.itemData(i) == bg_mode:
                 self.text_bg_combo.setCurrentIndex(i)
+                break
+        border_mode = str(cfg.get("thumbnail_text_border_color", "auto")).strip().lower()
+        for i in range(self.text_border_combo.count()):
+            if self.text_border_combo.itemData(i) == border_mode:
+                self.text_border_combo.setCurrentIndex(i)
                 break
         src = self._pick_source_image()
         if src:
@@ -6779,6 +6815,7 @@ class ThumbnailManagerDialog(QDialog):
         base["thumbnail_font_size"] = val
         base["thumbnail_font_bold"] = bool(self.font_bold_checkbox.isChecked())
         base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_text_border_color"] = str(self.text_border_combo.currentData() or "auto").strip().lower()
         base["thumbnail_font_file"] = str(self.font_combo.currentData() or "").strip()
         return base
 
@@ -6886,6 +6923,7 @@ class ThumbnailManagerDialog(QDialog):
         self.parent.config["thumbnail_font_size"] = int(cfg.get("thumbnail_font_size", 0))
         self.parent.config["thumbnail_font_bold"] = bool(cfg.get("thumbnail_font_bold", True))
         self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
+        self.parent.config["thumbnail_text_border_color"] = str(cfg.get("thumbnail_text_border_color", "auto"))
         self.parent.config["thumbnail_font_file"] = str(cfg.get("thumbnail_font_file", ""))
         self.parent.save_config_file()
         self.parent._update_settings_status("✅ 썸네일 관리 설정이 저장되었습니다")
