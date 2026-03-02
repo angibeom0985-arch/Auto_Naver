@@ -6701,9 +6701,8 @@ class ThumbnailManagerDialog(QDialog):
         super().__init__(parent)
         self.parent = parent
         self.setWindowTitle("썸네일 관리")
-        self.setMinimumSize(1280, 820)
-        self.resize(1600, 920)
-        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+        self.setMinimumSize(940, 640)
+        self.resize(1200, 760)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6744,14 +6743,14 @@ class ThumbnailManagerDialog(QDialog):
         self.preview_timer.timeout.connect(self.render_preview)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 24)
-        root.setSpacing(18)
+        root.setContentsMargins(18, 14, 18, 14)
+        root.setSpacing(10)
 
         left_panel = QWidget()
-        left_panel.setMinimumWidth(620)
+        left_panel.setMinimumWidth(500)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(18)
+        left_layout.setSpacing(10)
 
         info = QLabel("썸네일 배경 JPG에 예시 문구를 써보며 폰트/스타일을 미리 조정할 수 있습니다.")
         info.setWordWrap(False)
@@ -6763,11 +6762,11 @@ class ThumbnailManagerDialog(QDialog):
         root.addWidget(self.source_label)
 
         content_row = QHBoxLayout()
-        content_row.setSpacing(24)
+        content_row.setSpacing(12)
 
         form = QGridLayout()
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(14)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(8)
 
         form.addWidget(QLabel("예시 문구"), 0, 0)
         self.preview_text_entry = QLineEdit()
@@ -6987,7 +6986,7 @@ class ThumbnailManagerDialog(QDialog):
 
         self.preview_image_label = QLabel("미리보기를 생성하면 여기에 표시됩니다.")
         self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_image_label.setMinimumSize(560, 640)
+        self.preview_image_label.setMinimumSize(380, 460)
         self.preview_image_label.setStyleSheet(f"""
             QLabel {{
                 background-color: #FFFFFF;
@@ -6998,8 +6997,14 @@ class ThumbnailManagerDialog(QDialog):
         """)
         right_layout.addWidget(self.preview_image_label, 1)
 
-        content_row.addWidget(left_panel, 5)
-        content_row.addWidget(right_panel, 6)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left_panel)
+
+        content_row.addWidget(left_scroll, 1)
+        content_row.addWidget(right_panel, 1)
         root.addLayout(content_row)
 
         self._load_initial_values()
@@ -9907,7 +9912,6 @@ class NaverBlogGUI(QMainWindow):
 
     def open_thumbnail_manager_dialog(self):
         dialog = ThumbnailManagerDialog(self)
-        dialog.showMaximized()
         dialog.exec()
 
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
