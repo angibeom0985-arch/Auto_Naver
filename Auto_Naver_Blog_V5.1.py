@@ -6573,6 +6573,10 @@ class ThumbnailManagerDialog(QDialog):
         self.account_id = self.parent._selected_naver_account_id() if self.parent else ""
         self.image_folder = _resolve_account_thumbnail_dir(self.parent.data_dir, self.account_id, create=True) if self.parent else ""
         self.preview_path = os.path.join(self.parent.data_dir, "setting", "result", "_thumbnail_preview.jpg") if self.parent else ""
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.setInterval(120)
+        self.preview_timer.timeout.connect(self.render_preview)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
@@ -6638,7 +6642,7 @@ class ThumbnailManagerDialog(QDialog):
 
         preview_btn = QPushButton("👀 미리보기")
         preview_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
-        preview_btn.clicked.connect(self.render_preview)
+        preview_btn.clicked.connect(lambda: self.render_preview(show_popup=True))
         buttons.addWidget(preview_btn)
 
         save_btn = QPushButton("💾 설정 저장")
@@ -6679,7 +6683,19 @@ class ThumbnailManagerDialog(QDialog):
 
         self._load_initial_values()
         self.refresh_fonts()
+        self._connect_live_preview_events()
         self.render_preview()
+
+    def _connect_live_preview_events(self):
+        """설정 변경 시 미리보기를 자동 갱신"""
+        self.preview_text_entry.textChanged.connect(self._schedule_preview_update)
+        self.font_size_spin.valueChanged.connect(self._schedule_preview_update)
+        self.font_bold_checkbox.stateChanged.connect(self._schedule_preview_update)
+        self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.font_combo.currentIndexChanged.connect(self._schedule_preview_update)
+
+    def _schedule_preview_update(self):
+        self.preview_timer.start()
 
     def _load_initial_values(self):
         cfg = self.parent.config if self.parent else {}
@@ -6735,11 +6751,14 @@ class ThumbnailManagerDialog(QDialog):
                     self.font_combo.setCurrentIndex(i)
                     break
         self.font_combo.blockSignals(False)
+        self._schedule_preview_update()
 
-    def render_preview(self):
+    def render_preview(self, show_popup=False):
         src = self._pick_source_image()
         if not src:
-            self.parent._show_auto_close_message("⚠️ 썸네일 폴더에 JPG 파일이 없습니다.", QMessageBox.Icon.Warning)
+            self.preview_image_label.setText("썸네일 폴더에 JPG 파일이 없습니다.")
+            if show_popup:
+                self.parent._show_auto_close_message("⚠️ 썸네일 폴더에 JPG 파일이 없습니다.", QMessageBox.Icon.Warning)
             return
         cfg = self._current_preview_config()
         text = self.preview_text_entry.text().strip() or "썸네일 예시 문구"
@@ -6748,7 +6767,8 @@ class ThumbnailManagerDialog(QDialog):
 
         pixmap = QPixmap(self.preview_path)
         if pixmap.isNull():
-            self.parent._show_auto_close_message("⚠️ 미리보기 이미지를 불러오지 못했습니다.", QMessageBox.Icon.Warning)
+            if show_popup:
+                self.parent._show_auto_close_message("⚠️ 미리보기 이미지를 불러오지 못했습니다.", QMessageBox.Icon.Warning)
             return
         target_w = max(260, self.preview_image_label.width() - 20)
         target_h = max(260, self.preview_image_label.height() - 20)
