@@ -240,12 +240,63 @@ class LicenseManager:
             deduped.append(p)
         return deduped
 
+    def _machine_id_scan_roots(self):
+        """머신 ID 파일 정리 대상 루트 경로"""
+        roots = [
+            self.base_dir,
+            os.path.join(self.base_dir, "setting"),
+            self.state_dir,
+            os.path.join(self.state_dir, "setting"),
+            os.getcwd(),
+        ]
+        if platform.system() == "Windows":
+            for env_name in ("PROGRAMDATA", "LOCALAPPDATA", "APPDATA"):
+                root = os.getenv(env_name, "").strip()
+                if root:
+                    roots.append(os.path.join(root, "Auto_Naver"))
+
+        deduped = []
+        seen = set()
+        for root in roots:
+            if not root:
+                continue
+            try:
+                key = os.path.normcase(os.path.abspath(root))
+            except Exception:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(root)
+        return deduped
+
     def _cleanup_legacy_machine_id_files(self):
-        """과거 machine_id.txt 파일이 있으면 즉시 삭제"""
+        """실행 시 machine_id.txt 계열 파일을 조용히 삭제"""
+        legacy_names = {"machine_id.txt", "machine-id.txt", "machineid.txt"}
+
         for path in self._legacy_machine_id_paths():
             try:
                 if os.path.isfile(path):
                     os.remove(path)
+            except Exception:
+                continue
+        for root in self._machine_id_scan_roots():
+            try:
+                if not os.path.isdir(root):
+                    continue
+                for dirpath, _, filenames in os.walk(root):
+                    for filename in filenames:
+                        name = filename.lower()
+                        should_remove = (
+                            name in legacy_names
+                            or (name.endswith(".txt") and "machine" in name and "id" in name)
+                        )
+                        if not should_remove:
+                            continue
+                        try:
+                            os.remove(os.path.join(dirpath, filename))
+                        except Exception:
+                            continue
             except Exception:
                 continue
 
