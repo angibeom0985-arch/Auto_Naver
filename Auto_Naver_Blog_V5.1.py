@@ -411,6 +411,8 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     except Exception:
         cfg_font_size = 0
     cfg_font_size = max(0, min(72, cfg_font_size))
+    cfg_font_italic = bool((config or {}).get("thumbnail_font_italic", False))
+    cfg_font_underline = bool((config or {}).get("thumbnail_font_underline", False))
     cfg_text_bg = str((config or {}).get("thumbnail_text_bg", "auto")).strip().lower()
     if cfg_text_bg not in ("none", "auto", "white", "black", "yellow"):
         cfg_text_bg = "auto"
@@ -627,16 +629,63 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         img = Image.alpha_composite(img, shadow_layer)
         draw = ImageDraw.Draw(img)
 
-    draw.multiline_text(
-        (x, y),
-        title_text,
-        fill=text_fill,
-        font=font,
-        align="center",
-        spacing=line_spacing,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_fill,
-    )
+    def _draw_underlines(target_draw, color):
+        if not cfg_font_underline:
+            return
+        cursor_y = y
+        for raw_line in title_text.split("\n"):
+            line = raw_line or " "
+            line_box = target_draw.textbbox((0, 0), line, font=font)
+            line_w = max(1, line_box[2] - line_box[0])
+            line_h = max(1, line_box[3] - line_box[1])
+            line_x = margin + (available_width - line_w) // 2
+            underline_y = cursor_y + line_h + max(1, int(getattr(font, "size", 16) * 0.08))
+            target_draw.line(
+                (line_x, underline_y, line_x + line_w, underline_y),
+                fill=color,
+                width=max(1, int(getattr(font, "size", 16) * 0.06)),
+            )
+            cursor_y += line_h + line_spacing
+
+    if cfg_font_italic:
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+        text_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        text_draw = ImageDraw.Draw(text_layer)
+        text_draw.multiline_text(
+            (x, y),
+            title_text,
+            fill=(text_fill[0], text_fill[1], text_fill[2], 255),
+            font=font,
+            align="center",
+            spacing=line_spacing,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+        _draw_underlines(text_draw, (text_fill[0], text_fill[1], text_fill[2], 255))
+        skew = 0.22
+        skew_shift = int(round(skew * text_height))
+        affine_mode = Image.Transform.AFFINE if hasattr(Image, "Transform") else Image.AFFINE
+        text_layer = text_layer.transform(
+            img.size,
+            affine_mode,
+            (1, -skew, skew_shift, 0, 1, 0),
+            resample=Image.Resampling.BICUBIC,
+        )
+        img = Image.alpha_composite(img, text_layer)
+        draw = ImageDraw.Draw(img)
+    else:
+        draw.multiline_text(
+            (x, y),
+            title_text,
+            fill=text_fill,
+            font=font,
+            align="center",
+            spacing=line_spacing,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+        _draw_underlines(draw, text_fill)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     if img.mode != "RGB":
@@ -6723,26 +6772,104 @@ class ThumbnailManagerDialog(QDialog):
         self.preview_text_entry.setPlaceholderText("예: 퇴직연금 IRP 계좌 이전 방법")
         self.preview_text_entry.setText("썸네일 예시 문구")
         form.addWidget(self.preview_text_entry, 0, 1, 1, 2)
+        self.preview_text_entry.setToolTip("미리보기용 문구입니다. 실제 발행 시에는 생성된 제목이 들어갑니다.")
 
-        form.addWidget(QLabel("폰트 크기"), 1, 0)
+        form.addWidget(QLabel("글꼴"), 1, 0)
+        self.font_combo = QComboBox()
+        self.font_combo.setToolTip("썸네일 제목에 사용할 폰트를 선택합니다.")
+        form.addWidget(self.font_combo, 1, 1)
+
+        refresh_btn = QPushButton("폰트 새로고침")
+        refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        refresh_btn.setToolTip("TTF 폴더와 시스템 폰트를 다시 스캔합니다.")
+        refresh_btn.clicked.connect(self.refresh_fonts)
+        form.addWidget(refresh_btn, 1, 2)
+
+        form.addWidget(QLabel("폰트 크기"), 2, 0)
+        size_style_row = QHBoxLayout()
+        size_style_row.setSpacing(6)
+
+        self.font_size_minus_btn = QPushButton("-")
+        self.font_size_minus_btn.setFixedWidth(34)
+        self.font_size_minus_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        self.font_size_minus_btn.setToolTip("폰트 크기를 1 줄입니다.")
+        self.font_size_minus_btn.clicked.connect(lambda: self._change_font_size(-1))
+        size_style_row.addWidget(self.font_size_minus_btn)
+
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(0, 72)
         self.font_size_spin.setSpecialValueText("자동")
-        form.addWidget(self.font_size_spin, 1, 1)
+        self.font_size_spin.setToolTip("0은 자동 크기, 1~72는 고정 크기입니다.")
+        self.font_size_spin.setMaximumWidth(90)
+        size_style_row.addWidget(self.font_size_spin)
 
-        self.font_bold_checkbox = QCheckBox("볼드체")
-        form.addWidget(self.font_bold_checkbox, 1, 2)
+        self.font_size_plus_btn = QPushButton("+")
+        self.font_size_plus_btn.setFixedWidth(34)
+        self.font_size_plus_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        self.font_size_plus_btn.setToolTip("폰트 크기를 1 키웁니다.")
+        self.font_size_plus_btn.clicked.connect(lambda: self._change_font_size(1))
+        size_style_row.addWidget(self.font_size_plus_btn)
 
-        form.addWidget(QLabel("글자 배경색"), 2, 0)
+        style_btn_css = f"""
+            QPushButton {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 32px;
+                max-height: 32px;
+                padding: 0px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:checked {{
+                border-color: {NAVER_GREEN};
+                background-color: {NAVER_GREEN_LIGHT};
+                color: {NAVER_GREEN};
+            }}
+        """
+
+        self.font_bold_btn = QPushButton("B")
+        self.font_bold_btn.setCheckable(True)
+        self.font_bold_btn.setStyleSheet(style_btn_css)
+        self.font_bold_btn.setToolTip("굵게(Bold)를 적용합니다.")
+        size_style_row.addWidget(self.font_bold_btn)
+
+        self.font_italic_btn = QPushButton("I")
+        self.font_italic_btn.setCheckable(True)
+        self.font_italic_btn.setStyleSheet(style_btn_css)
+        self.font_italic_btn.setToolTip("기울임(Italic)을 적용합니다.")
+        size_style_row.addWidget(self.font_italic_btn)
+
+        self.font_underline_btn = QPushButton("U")
+        self.font_underline_btn.setCheckable(True)
+        self.font_underline_btn.setStyleSheet(style_btn_css)
+        self.font_underline_btn.setToolTip("밑줄(Underline)을 적용합니다.")
+        size_style_row.addWidget(self.font_underline_btn)
+
+        self.text_bg_popup_btn = QPushButton("A")
+        self.text_bg_popup_btn.setStyleSheet(style_btn_css)
+        self.text_bg_popup_btn.setToolTip("글자 배경색 메뉴를 엽니다.")
+        self.text_bg_popup_btn.clicked.connect(lambda: self.text_bg_combo.showPopup())
+        size_style_row.addWidget(self.text_bg_popup_btn)
+
+        size_style_row.addStretch()
+        form.addWidget(QLabel("폰트 크기"), 2, 0)
+        form.addLayout(size_style_row, 2, 1, 1, 2)
+
+        form.addWidget(QLabel("글자 배경색"), 3, 0)
         self.text_bg_combo = QComboBox()
         self.text_bg_combo.addItem("없음", "none")
         self.text_bg_combo.addItem("자동", "auto")
         self.text_bg_combo.addItem("흰색", "white")
         self.text_bg_combo.addItem("검정", "black")
         self.text_bg_combo.addItem("노랑", "yellow")
-        form.addWidget(self.text_bg_combo, 2, 1, 1, 2)
+        self.text_bg_combo.setToolTip("텍스트 뒤 배경 박스 색상을 설정합니다.")
+        form.addWidget(self.text_bg_combo, 3, 1, 1, 2)
 
-        form.addWidget(QLabel("테두리색"), 3, 0)
+        form.addWidget(QLabel("테두리색"), 4, 0)
         self.text_border_combo = QComboBox()
         self.text_border_combo.addItem("없음", "none")
         self.text_border_combo.addItem("자동", "auto")
@@ -6752,18 +6879,21 @@ class ThumbnailManagerDialog(QDialog):
         self.text_border_combo.addItem("빨강", "red")
         self.text_border_combo.addItem("파랑", "blue")
         self.text_border_combo.addItem("초록", "green")
-        form.addWidget(self.text_border_combo, 3, 1, 1, 2)
+        self.text_border_combo.setToolTip("글자 외곽선의 색상을 설정합니다.")
+        form.addWidget(self.text_border_combo, 4, 1, 1, 2)
 
-        form.addWidget(QLabel("테두리 두께"), 4, 0)
+        form.addWidget(QLabel("테두리 두께"), 5, 0)
         self.text_border_width_spin = QSpinBox()
         self.text_border_width_spin.setRange(0, 20)
         self.text_border_width_spin.setSuffix(" px")
-        form.addWidget(self.text_border_width_spin, 4, 1)
+        self.text_border_width_spin.setToolTip("외곽선 두께를 조절합니다.")
+        form.addWidget(self.text_border_width_spin, 5, 1)
 
         self.shadow_enabled_checkbox = QCheckBox("그림자 사용")
-        form.addWidget(self.shadow_enabled_checkbox, 4, 2)
+        self.shadow_enabled_checkbox.setToolTip("텍스트 그림자를 켜거나 끕니다.")
+        form.addWidget(self.shadow_enabled_checkbox, 5, 2)
 
-        form.addWidget(QLabel("그림자색"), 5, 0)
+        form.addWidget(QLabel("그림자색"), 6, 0)
         self.text_shadow_color_combo = QComboBox()
         self.text_shadow_color_combo.addItem("자동", "auto")
         self.text_shadow_color_combo.addItem("검정", "black")
@@ -6772,50 +6902,48 @@ class ThumbnailManagerDialog(QDialog):
         self.text_shadow_color_combo.addItem("빨강", "red")
         self.text_shadow_color_combo.addItem("파랑", "blue")
         self.text_shadow_color_combo.addItem("초록", "green")
-        form.addWidget(self.text_shadow_color_combo, 5, 1, 1, 2)
+        self.text_shadow_color_combo.setToolTip("그림자 색상을 설정합니다.")
+        form.addWidget(self.text_shadow_color_combo, 6, 1, 1, 2)
 
-        form.addWidget(QLabel("그림자 각도"), 6, 0)
+        form.addWidget(QLabel("그림자 각도"), 7, 0)
         self.text_shadow_angle_spin = QSpinBox()
         self.text_shadow_angle_spin.setRange(0, 359)
         self.text_shadow_angle_spin.setSuffix(" °")
-        form.addWidget(self.text_shadow_angle_spin, 6, 1)
+        self.text_shadow_angle_spin.setToolTip("그림자가 드리워지는 방향(각도)입니다.")
+        form.addWidget(self.text_shadow_angle_spin, 7, 1)
 
-        form.addWidget(QLabel("그림자 불투명도"), 7, 0)
+        form.addWidget(QLabel("그림자 불투명도"), 8, 0)
         self.text_shadow_opacity_spin = QSpinBox()
         self.text_shadow_opacity_spin.setRange(0, 100)
         self.text_shadow_opacity_spin.setSuffix(" %")
-        form.addWidget(self.text_shadow_opacity_spin, 7, 1)
+        self.text_shadow_opacity_spin.setToolTip("그림자의 진하기를 설정합니다.")
+        form.addWidget(self.text_shadow_opacity_spin, 8, 1)
 
-        form.addWidget(QLabel("그림자 거리"), 8, 0)
+        form.addWidget(QLabel("그림자 거리"), 9, 0)
         self.text_shadow_distance_spin = QSpinBox()
         self.text_shadow_distance_spin.setRange(0, 120)
         self.text_shadow_distance_spin.setSuffix(" px")
-        form.addWidget(self.text_shadow_distance_spin, 8, 1)
+        self.text_shadow_distance_spin.setToolTip("텍스트와 그림자 간 거리를 설정합니다.")
+        form.addWidget(self.text_shadow_distance_spin, 9, 1)
 
-        form.addWidget(QLabel("그림자 흐림"), 9, 0)
+        form.addWidget(QLabel("그림자 흐림"), 10, 0)
         self.text_shadow_blur_spin = QSpinBox()
         self.text_shadow_blur_spin.setRange(0, 50)
         self.text_shadow_blur_spin.setSuffix(" px")
-        form.addWidget(self.text_shadow_blur_spin, 9, 1)
-
-        form.addWidget(QLabel("폰트 선택"), 10, 0)
-        self.font_combo = QComboBox()
-        form.addWidget(self.font_combo, 10, 1)
-
-        refresh_btn = QPushButton("폰트 새로고침")
-        refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
-        refresh_btn.clicked.connect(self.refresh_fonts)
-        form.addWidget(refresh_btn, 10, 2)
+        self.text_shadow_blur_spin.setToolTip("그림자 퍼짐(블러) 강도를 설정합니다.")
+        form.addWidget(self.text_shadow_blur_spin, 10, 1)
 
         fav_layout = QHBoxLayout()
         fav_layout.setSpacing(8)
         fav_layout.addWidget(QLabel("즐겨찾기"))
         self.font_fav_add_btn = QPushButton("★ 추가")
         self.font_fav_add_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        self.font_fav_add_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에 추가합니다.")
         self.font_fav_add_btn.clicked.connect(self.add_current_font_to_favorites)
         fav_layout.addWidget(self.font_fav_add_btn)
         self.font_fav_remove_btn = QPushButton("☆ 제거")
         self.font_fav_remove_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+        self.font_fav_remove_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에서 제거합니다.")
         self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
         fav_layout.addWidget(self.font_fav_remove_btn)
         fav_layout.addStretch()
@@ -6829,16 +6957,19 @@ class ThumbnailManagerDialog(QDialog):
 
         preview_btn = QPushButton("👀 미리보기")
         preview_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        preview_btn.setToolTip("현재 설정으로 썸네일 미리보기를 즉시 생성합니다.")
         preview_btn.clicked.connect(lambda: self.render_preview(show_popup=True))
         buttons.addWidget(preview_btn)
 
         save_btn = QPushButton("💾 설정 저장")
         save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.setToolTip("현재 설정을 저장합니다.")
         save_btn.clicked.connect(self.save_settings)
         buttons.addWidget(save_btn)
 
         close_btn = QPushButton("닫기")
         close_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+        close_btn.setToolTip("창을 닫습니다.")
         close_btn.clicked.connect(self.accept)
         buttons.addWidget(close_btn)
         left_layout.addLayout(buttons)
@@ -6878,7 +7009,9 @@ class ThumbnailManagerDialog(QDialog):
         """설정 변경 시 미리보기를 자동 갱신"""
         self.preview_text_entry.textChanged.connect(self._schedule_preview_update)
         self.font_size_spin.valueChanged.connect(self._schedule_preview_update)
-        self.font_bold_checkbox.stateChanged.connect(self._schedule_preview_update)
+        self.font_bold_btn.toggled.connect(self._schedule_preview_update)
+        self.font_italic_btn.toggled.connect(self._schedule_preview_update)
+        self.font_underline_btn.toggled.connect(self._schedule_preview_update)
         self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.text_border_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.text_border_width_spin.valueChanged.connect(self._schedule_preview_update)
@@ -6905,13 +7038,20 @@ class ThumbnailManagerDialog(QDialog):
     def _schedule_preview_update(self):
         self.preview_timer.start()
 
+    def _change_font_size(self, delta):
+        cur = int(self.font_size_spin.value())
+        nxt = max(self.font_size_spin.minimum(), min(self.font_size_spin.maximum(), cur + int(delta)))
+        self.font_size_spin.setValue(nxt)
+
     def _load_initial_values(self):
         cfg = self.parent.config if self.parent else {}
         try:
             self.font_size_spin.setValue(int(cfg.get("thumbnail_font_size", 0) or 0))
         except Exception:
             self.font_size_spin.setValue(0)
-        self.font_bold_checkbox.setChecked(bool(cfg.get("thumbnail_font_bold", True)))
+        self.font_bold_btn.setChecked(bool(cfg.get("thumbnail_font_bold", True)))
+        self.font_italic_btn.setChecked(bool(cfg.get("thumbnail_font_italic", False)))
+        self.font_underline_btn.setChecked(bool(cfg.get("thumbnail_font_underline", False)))
         bg_mode = str(cfg.get("thumbnail_text_bg", "auto")).strip().lower()
         for i in range(self.text_bg_combo.count()):
             if self.text_bg_combo.itemData(i) == bg_mode:
@@ -6973,7 +7113,9 @@ class ThumbnailManagerDialog(QDialog):
         if val > 0 and val < 6:
             val = 6
         base["thumbnail_font_size"] = val
-        base["thumbnail_font_bold"] = bool(self.font_bold_checkbox.isChecked())
+        base["thumbnail_font_bold"] = bool(self.font_bold_btn.isChecked())
+        base["thumbnail_font_italic"] = bool(self.font_italic_btn.isChecked())
+        base["thumbnail_font_underline"] = bool(self.font_underline_btn.isChecked())
         base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
         base["thumbnail_text_border_color"] = str(self.text_border_combo.currentData() or "auto").strip().lower()
         base["thumbnail_text_border_width"] = int(self.text_border_width_spin.value())
@@ -7089,6 +7231,8 @@ class ThumbnailManagerDialog(QDialog):
         cfg = self._current_preview_config()
         self.parent.config["thumbnail_font_size"] = int(cfg.get("thumbnail_font_size", 0))
         self.parent.config["thumbnail_font_bold"] = bool(cfg.get("thumbnail_font_bold", True))
+        self.parent.config["thumbnail_font_italic"] = bool(cfg.get("thumbnail_font_italic", False))
+        self.parent.config["thumbnail_font_underline"] = bool(cfg.get("thumbnail_font_underline", False))
         self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
         self.parent.config["thumbnail_text_border_color"] = str(cfg.get("thumbnail_text_border_color", "auto"))
         self.parent.config["thumbnail_text_border_width"] = int(cfg.get("thumbnail_text_border_width", 2))
