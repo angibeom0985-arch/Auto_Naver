@@ -28,6 +28,8 @@ class LicenseManager:
         self.state_dir = self._get_state_dir()
         self.license_file = os.path.join(self.state_dir, "license.json")
         self.license_data = self.load_license()
+        # 배포 정책: machine_id.txt 파일은 어떤 경로에도 남기지 않음
+        self._cleanup_legacy_machine_id_files()
 
     def _get_base_dir(self):
         """Auto_Naver 기준 경로 반환 (EXE/PY 모두 지원)"""
@@ -217,8 +219,8 @@ class LicenseManager:
         except Exception:
             return ""
 
-    def _machine_id_paths(self):
-        """머신 ID 파일 후보 경로 목록 (우선순위 순)"""
+    def _legacy_machine_id_paths(self):
+        """과거 버전에서 사용하던 machine_id.txt 경로 목록"""
         paths = [
             os.path.join(self.state_dir, "machine_id.txt"),
             os.path.join(self.base_dir, "setting", "machine_id.txt"),
@@ -237,6 +239,15 @@ class LicenseManager:
             seen.add(key)
             deduped.append(p)
         return deduped
+
+    def _cleanup_legacy_machine_id_files(self):
+        """과거 machine_id.txt 파일이 있으면 즉시 삭제"""
+        for path in self._legacy_machine_id_paths():
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+            except Exception:
+                continue
 
     def _is_valid_machine_id(self, value):
         return bool(self._normalize_machine_id(value))
@@ -266,26 +277,10 @@ class LicenseManager:
         registry_saved = self._read_machine_id_from_registry()
         if registry_saved:
             return registry_saved
-        for path in self._machine_id_paths():
-            try:
-                if os.path.exists(path):
-                    with open(path, "r", encoding="utf-8") as f:
-                        saved = self._normalize_machine_id(f.read())
-                    if saved:
-                        return saved
-            except Exception:
-                continue
         return ""
 
     def _persist_machine_id(self, machine_id):
         self._persist_machine_id_to_registry(machine_id)
-        for path in self._machine_id_paths():
-            try:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(machine_id)
-            except Exception:
-                continue
 
     def get_machine_id(self):
         """머신 고유 ID 생성/로드 (최초 생성 후 고정)"""
@@ -321,7 +316,7 @@ class LicenseManager:
         combined = "|".join(parts)
         machine_id = f"{self.MACHINE_ID_PREFIX}{hashlib.sha256(combined.encode('utf-8')).hexdigest()[:32]}"
 
-        # 3) 새 ID 저장 (신규 경로 + 레거시 경로 모두)
+        # 3) 새 ID 저장 (레지스트리 전용, 파일 저장 금지)
         try:
             self._persist_machine_id(machine_id)
         except Exception as e:
@@ -349,8 +344,6 @@ class LicenseManager:
     def save_license(self, license_key, machine_id):
         """라이선스 정보 저장"""
         try:
-            os.makedirs(os.path.join(self.base_dir, "setting"), exist_ok=True)
-
             license_data = {
                 "license_key": license_key,
                 "registered_machine_id": machine_id,
