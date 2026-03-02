@@ -7713,7 +7713,7 @@ class NaverBlogGUI(QMainWindow):
         summary_row.addWidget(self.naver_account_selector)
         summary_row.addStretch()
 
-        add_account_btn = QPushButton("＋ 계정 추가하기")
+        add_account_btn = QPushButton("계정 관리")
         add_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_account_btn.setStyleSheet(save_btn_style)
         add_account_btn.setMinimumHeight(34)
