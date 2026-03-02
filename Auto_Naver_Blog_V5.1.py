@@ -449,17 +449,36 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
 
     # 고정 폰트 크기에서도 루프가 비지 않도록 하한을 충분히 낮춘다.
     # (기존 15에서 range가 비어 기본 폰트로 폴백되어 한글이 깨지는 문제 방지)
-    font_sizes = list(range(cfg_font_size, 7, -1)) if cfg_font_size > 0 else list(range(40, 9, -2))
-    for font_size in font_sizes:
-        loaded_font = None
+    def _load_font_for_size(size):
         for font_path in font_candidates:
             try:
-                loaded_font = ImageFont.truetype(font_path, font_size)
-                break
+                return ImageFont.truetype(font_path, size)
             except Exception:
                 continue
+        # 한글 폰트 강제 폴백
+        for fp in (
+            "C:/Windows/Fonts/malgun.ttf",
+            "C:/Windows/Fonts/malgunbd.ttf",
+            "C:/Windows/Fonts/NanumGothic.ttf",
+            "C:/Windows/Fonts/gulim.ttc",
+        ):
+            try:
+                return ImageFont.truetype(fp, size)
+            except Exception:
+                continue
+        return None
+
+    if cfg_font_size > 0:
+        lower_bound = 6
+        font_sizes = list(range(cfg_font_size, lower_bound - 1, -1))
+        if not font_sizes:
+            font_sizes = [cfg_font_size]
+    else:
+        font_sizes = list(range(40, 9, -2))
+    for font_size in font_sizes:
+        loaded_font = _load_font_for_size(font_size)
         if loaded_font is None:
-            loaded_font = ImageFont.load_default()
+            continue
 
         bbox = draw.multiline_textbbox((0, 0), title_text, font=loaded_font, align="center", spacing=line_spacing)
         width = bbox[2] - bbox[0]
@@ -470,7 +489,8 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
             break
 
     if font is None:
-        font = ImageFont.load_default()
+        fallback_size = cfg_font_size if cfg_font_size > 0 else 20
+        font = _load_font_for_size(fallback_size) or ImageFont.load_default()
         bbox = draw.multiline_textbbox((0, 0), title_text, font=font, align="center", spacing=line_spacing)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
@@ -6643,6 +6663,20 @@ class ThumbnailManagerDialog(QDialog):
         refresh_btn.clicked.connect(self.refresh_fonts)
         form.addWidget(refresh_btn, 3, 2)
 
+        fav_layout = QHBoxLayout()
+        fav_layout.setSpacing(8)
+        fav_layout.addWidget(QLabel("즐겨찾기"))
+        self.font_fav_add_btn = QPushButton("★ 추가")
+        self.font_fav_add_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        self.font_fav_add_btn.clicked.connect(self.add_current_font_to_favorites)
+        fav_layout.addWidget(self.font_fav_add_btn)
+        self.font_fav_remove_btn = QPushButton("☆ 제거")
+        self.font_fav_remove_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+        self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
+        fav_layout.addWidget(self.font_fav_remove_btn)
+        fav_layout.addStretch()
+        form.addLayout(fav_layout, 4, 0, 1, 3)
+
         left_layout.addLayout(form)
         left_layout.addStretch()
 
@@ -6739,21 +6773,81 @@ class ThumbnailManagerDialog(QDialog):
 
     def _current_preview_config(self):
         base = dict(self.parent.config) if self.parent else {}
-        base["thumbnail_font_size"] = int(self.font_size_spin.value())
+        val = int(self.font_size_spin.value())
+        if val > 0 and val < 6:
+            val = 6
+        base["thumbnail_font_size"] = val
         base["thumbnail_font_bold"] = bool(self.font_bold_checkbox.isChecked())
         base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
         base["thumbnail_font_file"] = str(self.font_combo.currentData() or "").strip()
         return base
 
+    def _get_favorite_fonts(self):
+        raw = self.parent.config.get("thumbnail_favorite_fonts", []) if self.parent else []
+        if not isinstance(raw, list):
+            return []
+        favorites = []
+        seen = set()
+        for fp in raw:
+            path = str(fp).strip()
+            if not path:
+                continue
+            norm = os.path.normcase(os.path.abspath(path))
+            if norm in seen:
+                continue
+            seen.add(norm)
+            favorites.append(path)
+        return favorites
+
+    def _set_favorite_fonts(self, fonts):
+        self.parent.config["thumbnail_favorite_fonts"] = fonts
+
+    def add_current_font_to_favorites(self):
+        current = str(self.font_combo.currentData() or "").strip()
+        if not current:
+            self.parent._show_auto_close_message("⚠️ 자동 선택은 즐겨찾기에 추가할 수 없습니다.", QMessageBox.Icon.Warning)
+            return
+        favorites = self._get_favorite_fonts()
+        norm_set = {os.path.normcase(os.path.abspath(fp)) for fp in favorites}
+        norm_cur = os.path.normcase(os.path.abspath(current))
+        if norm_cur not in norm_set:
+            favorites.append(current)
+            self._set_favorite_fonts(favorites)
+            self.parent.save_config_file()
+        self.refresh_fonts()
+        self.parent._update_settings_status(f"⭐ 즐겨찾기 추가: {os.path.basename(current)}")
+
+    def remove_current_font_from_favorites(self):
+        current = str(self.font_combo.currentData() or "").strip()
+        if not current:
+            return
+        norm_cur = os.path.normcase(os.path.abspath(current))
+        favorites = [fp for fp in self._get_favorite_fonts() if os.path.normcase(os.path.abspath(fp)) != norm_cur]
+        self._set_favorite_fonts(favorites)
+        self.parent.save_config_file()
+        self.refresh_fonts()
+        self.parent._update_settings_status(f"⭐ 즐겨찾기 제거: {os.path.basename(current)}")
+
     def refresh_fonts(self):
         cfg = self._current_preview_config()
         selected_font = str(cfg.get("thumbnail_font_file", "")).strip()
         fonts = _collect_thumbnail_font_candidates(self.parent.data_dir, self.image_folder, cfg)
+        favorites = self._get_favorite_fonts()
+        favorite_map = {os.path.normcase(os.path.abspath(fp)): fp for fp in favorites}
 
         self.font_combo.blockSignals(True)
         self.font_combo.clear()
         self.font_combo.addItem("자동 선택", "")
+        # 즐겨찾기를 최상단에 먼저 표시
         for fp in fonts:
+            norm = os.path.normcase(os.path.abspath(fp))
+            if norm in favorite_map:
+                self.font_combo.addItem(f"★ {os.path.basename(fp)}", fp)
+        # 나머지 폰트 표시
+        for fp in fonts:
+            norm = os.path.normcase(os.path.abspath(fp))
+            if norm in favorite_map:
+                continue
             self.font_combo.addItem(os.path.basename(fp), fp)
         if selected_font:
             for i in range(self.font_combo.count()):
