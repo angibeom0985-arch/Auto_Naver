@@ -1,38 +1,38 @@
-﻿# Codex Working Rules
+﻿# Codex 작업 규칙
 
-## Git Auto-Commit
-- At the end of every completed coding task, run `git add -A`, create a commit, and push to `origin`.
-- Do not skip commit/push unless the user explicitly says not to push.
-- Use clear commit messages that summarize the implemented fix.
+## Git 자동 커밋
+- 완료된 모든 코딩 작업의 마지막에 `git add -A` 후 커밋을 만들고 `origin`에 푸시한다.
+- 사용자가 푸시하지 말라고 명시하지 않는 한 커밋/푸시를 생략하지 않는다.
+- 구현한 수정 내용을 요약하는 명확한 커밋 메시지를 사용한다.
 
-## Machine ID Protection
-- The existing machine ID behavior in any executable (`.exe`) must remain unchanged, even when rebuilding the executable or updating Python (`.py`) features.
-- Do not modify, refactor, replace, or regenerate any machine ID logic in any file.
-- Never create new machine ID-related code, functions, variables, classes, modules, scripts, resources, or configuration.
-- Never create machine ID-related files in any location, including root, subfolders, build outputs, temp folders, or packaged artifacts.
-- Do not add or generate any machine ID-related code/files in Python (`.py`), executable (`.exe`), or any folder under this project.
-- Never create `machine_id.txt`; if it exists in any folder, delete it before continuing work or distribution.
-- Before shipping to buyers, verify no `machine_id.txt` is included in source, build output, or packaged deliverables.
-- This protection is mandatory because buyer distribution must preserve both the `1인1PC` restriction and license period enforcement.
-- If a task request conflicts with this policy, explicitly refuse that part and proceed only with allowed changes.
+## 머신 ID 보호
+- `.exe`를 다시 빌드하거나 Python(`.py`) 기능을 업데이트하더라도, 실행 파일의 기존 머신 ID 동작은 변경하지 않는다.
+- 어떤 파일에서도 머신 ID 로직을 수정, 리팩터링, 교체, 재생성하지 않는다.
+- 머신 ID 관련 코드, 함수, 변수, 클래스, 모듈, 스크립트, 리소스, 설정을 새로 만들지 않는다.
+- 루트, 하위 폴더, 빌드 산출물, 임시 폴더, 패키징 결과물을 포함한 어떤 위치에도 머신 ID 관련 파일을 생성하지 않는다.
+- 이 프로젝트의 Python(`.py`), 실행 파일(`.exe`), 그 어떤 폴더에도 머신 ID 관련 코드/파일을 추가하거나 생성하지 않는다.
+- `machine_id.txt`는 절대 생성하지 않는다. 어떤 폴더에서든 발견되면 작업/배포 전에 삭제한다.
+- 구매자 배포 전, 소스/빌드 결과물/패키지에 `machine_id.txt`가 포함되지 않았는지 반드시 확인한다.
+- 이 보호 정책은 구매자 배포 시 `1인1PC` 제한과 사용 기간 검증을 유지하기 위한 필수 조건이다.
+- 요청이 이 정책과 충돌하면, 충돌되는 부분은 명시적으로 거부하고 허용된 변경만 진행한다.
 
-## Machine ID Standard (Apply to all future `.py`)
-- Goal: enforce `1인1PC` and `사용 기간` while preventing machine-id file artifacts in distributed builds.
-- Machine ID format must be fixed as: `NAVER-` + 32 lowercase hex characters.
-- Machine ID source priority must be:
-  1. valid `registered_machine_id` in license data (if already issued),
-  2. saved registry value (`HKCU\\Software\\Auto_Naver\\MachineId`) on Windows,
-  3. deterministic hardware fingerprint hash (MachineGuid / SMBIOS UUID / system drive serial / stable MAC).
-- Machine ID must never be persisted to text files. Registry persistence is allowed; `machine_id.txt` is always forbidden.
-- On every app start (including `.exe` run), silently scan and delete machine-id text artifacts (`machine_id.txt`, `machine-id.txt`, `machineid.txt`, and machine+id named `.txt`) under:
-  - exe base folder and all subfolders,
-  - project `setting` tree,
-  - runtime state dir and its subfolders,
-  - Windows `APPDATA/LOCALAPPDATA/PROGRAMDATA` `Auto_Naver` trees.
-- Cleanup must be silent: no popup, no console log, no user-facing message.
-- License storage must keep period-check fields and buyer mapping data; do not remove license validity/expiry checks for convenience.
-- If refactoring license code, preserve behavioral compatibility first:
-  - existing valid buyers continue to pass,
-  - expired buyers continue to fail,
-  - unregistered machines continue to fail.
-- Before release, run a recursive check from exe folder and confirm no machine-id artifact file is included in source, dist, or package output.
+## 머신 ID 표준 (앞으로 모든 `.py`에 적용)
+- 목표: 배포본에서 머신 ID 파일 잔여물을 막으면서 `1인1PC` 제한과 `사용 기간` 검증을 강제한다.
+- 머신 ID 형식은 `NAVER-` + 소문자 32자리 hex로 고정한다.
+- 머신 ID 결정 우선순위는 다음과 같이 유지한다.
+  1. 이미 발급된 라이선스 데이터의 유효한 `registered_machine_id`
+  2. Windows 레지스트리 값 `HKCU\\Software\\Auto_Naver\\MachineId`
+  3. 결정적 하드웨어 지문 해시(MachineGuid / SMBIOS UUID / 시스템 드라이브 시리얼 / 안정적 MAC)
+- 머신 ID를 텍스트 파일로 저장하지 않는다. 저장이 필요하면 레지스트리만 사용하며, `machine_id.txt`는 항상 금지한다.
+- 앱 실행 시마다(`.exe` 포함) 아래 경로를 조용히(무음) 재귀 검사해 머신 ID 텍스트 잔여물을 삭제한다.
+  - exe 기준 폴더 및 모든 하위 폴더
+  - 프로젝트 `setting` 트리
+  - 런타임 상태 저장 경로 및 하위 폴더
+  - Windows `APPDATA/LOCALAPPDATA/PROGRAMDATA`의 `Auto_Naver` 트리
+- 정리 동작은 무음이어야 한다. 팝업, 콘솔 로그, 사용자 메시지를 출력하지 않는다.
+- 라이선스 저장 구조에서는 기간 검증 필드와 구매자 매핑 데이터를 유지한다. 편의상 만료/유효성 검증을 제거하지 않는다.
+- 라이선스 코드 리팩터링 시 아래 동작 호환성을 우선 보장한다.
+  - 기존 유효 구매자는 계속 통과
+  - 만료 구매자는 계속 실패
+  - 미등록 머신은 계속 실패
+- 배포 전 exe 기준 폴더에서 재귀 검사하여 머신 ID 잔여 파일이 소스, dist, 패키지 산출물에 없는지 최종 확인한다.
