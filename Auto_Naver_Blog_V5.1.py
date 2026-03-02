@@ -7264,6 +7264,14 @@ class NaverBlogGUI(QMainWindow):
         
         # 설정 상태 카드
         status_card = PremiumCard("설정 상태", "⚙️")
+
+        # 현재 포스팅 계정 상태
+        current_account_layout = QHBoxLayout()
+        self.current_posting_account_label = QLabel("🎯 현재 포스팅 계정: 미설정")
+        self.current_posting_account_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
+        self.current_posting_account_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+        current_account_layout.addWidget(self.current_posting_account_label)
+        status_card.content_layout.addLayout(current_account_layout)
         
         # 로그인 정보 상태
         login_status_layout = QHBoxLayout()
@@ -9212,6 +9220,25 @@ class NaverBlogGUI(QMainWindow):
         # 로그인 정보 상태 (UI 입력창에서 직접 읽기)
         naver_id = self.naver_id_entry.text().strip()
         naver_pw = self.naver_pw_entry.text().strip()
+
+        # 현재 포스팅 대상 계정 표시
+        if hasattr(self, "current_posting_account_label"):
+            slots = self._get_naver_account_slots()
+            active_slot = self._get_active_naver_account_slot(slots)
+            active_id = ""
+            if slots and 0 <= active_slot < len(slots):
+                active_id = str(slots[active_slot].get("id", "")).strip()
+            if not active_id:
+                active_id = str(self.config.get("naver_id", "")).strip() or naver_id
+
+            if active_id:
+                self.current_posting_account_label.setText(
+                    f"🎯 현재 포스팅 계정: 계정 {active_slot + 1} ({active_id})"
+                )
+                self.current_posting_account_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+            else:
+                self.current_posting_account_label.setText("🎯 현재 포스팅 계정: 미설정")
+                self.current_posting_account_label.setStyleSheet(f"color: {NAVER_TEXT_SUB}; border: none;")
         
         if naver_id and naver_pw:
             self.login_status_label.setText("👤 로그인: 설정 완료")
@@ -10318,6 +10345,7 @@ class NaverBlogGUI(QMainWindow):
                     self.config["related_posts_title"] = related_posts_title
                     self.config["blog_address"] = blog_address
                     self.update_progress_status(f"👤 작업 계정: 계정 {slot_idx + 1} ({cycle_naver_id})")
+                    self.ui_refresh_status_signal.emit()
                     
                     external_link = self.link_url_entry.text() if self.use_link_checkbox.isChecked() else ""
                     external_link_text = self.link_text_entry.text() if self.use_link_checkbox.isChecked() else ""
