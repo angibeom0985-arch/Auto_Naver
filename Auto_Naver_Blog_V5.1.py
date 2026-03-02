@@ -681,9 +681,6 @@ class NaverBlogAutomation:
         else:
             self.model = None
         
-        # 초기화 시 오래된 파일 정리
-        self.clean_old_files()
-
     def should_recycle_browser_session(self):
         """브라우저 세션 재생성 필요 여부"""
         if not self.driver:
@@ -1398,7 +1395,12 @@ class NaverBlogAutomation:
             self.last_ai_error = ""
             self._wait_if_paused()
             model_name = "Gemini 2.5 Flash-Lite"
-            self._update_status(f"🤖 AI 모델 준비 중: {model_name}")
+            if self.gemini_mode == "web":
+                provider = (self.config.get("web_ai_provider", "gemini") or "gemini").lower()
+                provider_label = "GPT" if provider == "gpt" else ("Perplexity" if provider == "perplexity" else "Gemini")
+                self._update_status(f"🌐 웹사이트 AI 준비 중: {provider_label}")
+            else:
+                self._update_status(f"🤖 AI 모델 준비 중: {model_name}")
             
             # keywords.txt에서 키워드 로드
             self._update_status("📋 키워드 파일 읽는 중...")
@@ -1460,9 +1462,10 @@ class NaverBlogAutomation:
             # self._update_status(f"✅ 프롬프트 모드: {selected_mode}")
 
             # Gemini 호출
-            self._update_status(f"🔄 AI에게 글 생성 요청 중... (모델: {model_name})")
             if self.gemini_mode == "web":
                 provider = (self.config.get("web_ai_provider", "gemini") or "gemini").lower()
+                provider_label = "GPT" if provider == "gpt" else ("Perplexity" if provider == "perplexity" else "Gemini")
+                self._update_status(f"🔄 웹사이트 AI에게 글 생성 요청 중... ({provider_label})")
                 if provider == "gpt":
                     content = self._generate_content_with_chatgpt_web(full_prompt)
                 elif provider == "perplexity":
@@ -1470,6 +1473,7 @@ class NaverBlogAutomation:
                 else:
                     content = self._generate_content_with_gemini_web_with_retry(full_prompt)
             else:
+                self._update_status(f"🔄 AI에게 글 생성 요청 중... (모델: {model_name})")
                 response = self.model.generate_content(full_prompt)  # type: ignore
                 content = getattr(response, "text", "")  # type: ignore
 
@@ -5230,10 +5234,16 @@ class NaverBlogAutomation:
                         # 탭 정리는 run()의 _cleanup_working_tabs()에서 일괄 처리한다.
                         if len(self.driver.window_handles) > 1:
                             self._update_status("🧹 발행 완료 - 탭 정리는 후속 단계에서 수행합니다")
-                        
+
                         self._update_status("✅ 발행 완료")
                     except Exception as e:
                         self._update_status(f"⚠️ 창 정리 중 오류 (계속 진행): {str(e)[:50]}")
+
+                    # 발행 후마다 result 폴더의 오래된 파일 정리
+                    try:
+                        self.clean_old_files()
+                    except Exception:
+                        pass
                     
                     return True
                 except:
