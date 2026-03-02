@@ -484,6 +484,7 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     available_height = 300 - (margin * 2)
     font = None
     text_width, text_height = 0, 0
+    text_bbox = (0, 0, 0, 0)
 
     # 고정 폰트 크기에서도 루프가 비지 않도록 하한을 충분히 낮춘다.
     # (기존 15에서 range가 비어 기본 폰트로 폴백되어 한글이 깨지는 문제 방지)
@@ -524,6 +525,7 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         if width <= available_width and height <= available_height:
             font = loaded_font
             text_width, text_height = width, height
+            text_bbox = bbox
             break
 
     if font is None:
@@ -532,11 +534,22 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         bbox = draw.multiline_textbbox((0, 0), title_text, font=font, align="center", spacing=line_spacing)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
+        text_bbox = bbox
 
-    x = margin + (available_width - text_width) // 2
-    y = margin + (available_height - text_height) // 2
+    # textbbox의 left/top 오프셋을 보정해 실제 글자 영역이 중앙에 오도록 배치
+    x = margin + (available_width - text_width) // 2 - text_bbox[0]
+    y = margin + (available_height - text_height) // 2 - text_bbox[1]
+    visual_left = x + text_bbox[0]
+    visual_top = y + text_bbox[1]
+    visual_right = x + text_bbox[2]
+    visual_bottom = y + text_bbox[3]
 
-    sample_box = (max(0, x), max(0, y), min(300, x + text_width), min(300, y + text_height))
+    sample_box = (
+        max(0, int(visual_left)),
+        max(0, int(visual_top)),
+        min(300, int(visual_right)),
+        min(300, int(visual_bottom)),
+    )
     try:
         sample = img.convert("L").crop(sample_box)
         mean_luma = ImageStat.Stat(sample).mean[0] if sample.size[0] > 0 and sample.size[1] > 0 else 127
@@ -593,10 +606,10 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         pad_x = 12
         pad_y = 8
         box = (
-            max(0, x - pad_x),
-            max(0, y - pad_y),
-            min(300, x + text_width + pad_x),
-            min(300, y + text_height + pad_y),
+            max(0, int(visual_left - pad_x)),
+            max(0, int(visual_top - pad_y)),
+            min(300, int(visual_right + pad_x)),
+            min(300, int(visual_bottom + pad_y)),
         )
         overlay_draw.rounded_rectangle(box, radius=12, fill=bg_fill)
         img = Image.alpha_composite(img, overlay)
@@ -651,8 +664,9 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
             line_box = target_draw.textbbox((0, 0), line, font=font)
             line_w = max(1, line_box[2] - line_box[0])
             line_h = max(1, line_box[3] - line_box[1])
-            line_x = margin + (available_width - line_w) // 2
-            underline_y = cursor_y + line_h + max(1, int(getattr(font, "size", 16) * 0.08))
+            line_x = margin + (available_width - line_w) // 2 - line_box[0]
+            # line_box[3]는 실제 글자 하단 위치이므로 밑줄을 글자 아래에 정확히 배치
+            underline_y = cursor_y + line_box[3] + max(1, int(getattr(font, "size", 16) * 0.06))
             target_draw.line(
                 (line_x, underline_y, line_x + line_w, underline_y),
                 fill=color,
@@ -677,7 +691,9 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         )
         _draw_underlines(text_draw, (text_fill[0], text_fill[1], text_fill[2], 255))
         skew = 0.22
-        skew_shift = int(round(skew * text_height))
+        # 전역 Y=0 기준 변형 보정으로 인한 수평 이동을 막기 위해 텍스트 중심 Y를 기준으로 보정
+        text_center_y = y + ((text_bbox[1] + text_bbox[3]) / 2.0)
+        skew_shift = float(skew * text_center_y)
         affine_mode = Image.Transform.AFFINE if hasattr(Image, "Transform") else Image.AFFINE
         text_layer = text_layer.transform(
             img.size,
