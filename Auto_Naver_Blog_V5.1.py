@@ -5754,6 +5754,44 @@ class NaverBlogAutomation:
         except Exception:
             return True
 
+    def _ensure_naver_keep_login_checked(self):
+        """네이버 로그인 페이지의 '로그인 상태 유지' 체크를 보장"""
+        try:
+            keep_box = WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "#keep"))
+            )
+            keep_input = self.driver.find_elements(By.CSS_SELECTOR, "#nvlong")
+            checked = (keep_box.get_attribute("aria-checked") or "").lower() == "true"
+            if not checked and keep_input:
+                checked = bool(keep_input[0].is_selected())
+
+            if checked:
+                self._update_status("🔒 로그인 상태 유지: 이미 체크됨")
+                return True
+
+            # 실제 클릭 타깃은 div#keep. 클릭 실패 시 JS 클릭으로 폴백.
+            try:
+                WebDriverWait(self.driver, 3).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "#keep"))
+                ).click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", keep_box)
+
+            self._sleep_with_checks(0.3)
+            checked = (keep_box.get_attribute("aria-checked") or "").lower() == "true"
+            if not checked and keep_input:
+                checked = bool(keep_input[0].is_selected())
+
+            if checked:
+                self._update_status("✅ 로그인 상태 유지 체크 완료")
+                return True
+
+            self._update_status("⚠️ 로그인 상태 유지 체크 확인 실패 (계속 진행)")
+            return False
+        except Exception as e:
+            self._update_status(f"⚠️ 로그인 상태 유지 체크 중 예외: {str(e)} (계속 진행)")
+            return False
+
     def login(self):
         """네이버 로그인 (캡차 우회: 클립보드 복사 붙여넣기 방식)"""
         try:
@@ -5805,6 +5843,11 @@ class NaverBlogAutomation:
             ActionChains(self.driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
             self._sleep_with_checks(1)
             
+            if self.should_stop:
+                return False
+
+            # 로그인 유지 체크 (계정별 프로필에 세션 유지되도록 시도)
+            self._ensure_naver_keep_login_checked()
             if self.should_stop:
                 return False
 
