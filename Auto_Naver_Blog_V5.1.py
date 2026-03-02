@@ -5792,6 +5792,37 @@ class NaverBlogAutomation:
             self._update_status(f"⚠️ 로그인 상태 유지 체크 중 예외: {str(e)} (계속 진행)")
             return False
 
+    def _try_check_naver_2fa_trust_browser(self):
+        """2단계 인증 화면의 '이 브라우저는 2단계 인증 없이 로그인' 체크 시도"""
+        try:
+            text_node = self.driver.find_elements(By.CSS_SELECTOR, "#not_ask_again")
+            if not text_node:
+                return False
+
+            # 문구가 보이면 연결된 체크 컨트롤을 클릭해 신뢰 브라우저로 등록
+            selectors = [
+                "#check_not_ask_again",
+                "label[for='check_not_ask_again']",
+                "#not_ask_again",
+            ]
+            for sel in selectors:
+                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                if not elems:
+                    continue
+                elem = elems[0]
+                if not elem.is_displayed():
+                    continue
+                try:
+                    elem.click()
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", elem)
+                self._sleep_with_checks(0.2)
+                self._update_status("✅ 2단계 인증 예외(이 브라우저) 체크 완료")
+                return True
+            return False
+        except Exception:
+            return False
+
     def login(self):
         """네이버 로그인 (캡차 우회: 클립보드 복사 붙여넣기 방식)"""
         try:
@@ -5862,6 +5893,9 @@ class NaverBlogAutomation:
             while time.time() < end_time:
                 if self.should_stop:
                     return False
+
+                # 2단계 인증 화면이 보이면 사용자의 코드 입력 전에 즉시 체크 시도
+                self._try_check_naver_2fa_trust_browser()
                 
                 # 기기 등록 페이지 처리 (deviceConfirm)
                 try:
