@@ -372,16 +372,13 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
             for root in rel_roots:
                 _add(os.path.join(root, selected_font))
 
-    # 2) 사용자 폴더 스캔
-    _scan_dir(image_folder)
-    _scan_dir(os.path.join(image_folder, "ttf"))
-    _scan_dir(os.path.join(data_dir, "setting", "image", "ttf"))
-
-    # 3) 시스템 폰트 폴백
+    # 2) 시스템 폰트 우선 (자동 선택 시 한글 깨짐 방지)
     system_fonts = [
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/malgunbd.ttf",
         "C:/Windows/Fonts/NanumGothic.ttf",
+        "C:/Windows/Fonts/gulim.ttc",
+        "C:/Windows/Fonts/batang.ttc",
     ]
     if cfg_font_bold:
         system_fonts = [
@@ -389,9 +386,15 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
             "C:/Windows/Fonts/malgun.ttf",
             "C:/Windows/Fonts/NanumGothicBold.ttf",
             "C:/Windows/Fonts/NanumGothic.ttf",
+            "C:/Windows/Fonts/gulim.ttc",
         ]
     for fp in system_fonts:
         _add(fp)
+
+    # 3) 사용자 폴더 스캔
+    _scan_dir(image_folder)
+    _scan_dir(os.path.join(image_folder, "ttf"))
+    _scan_dir(os.path.join(data_dir, "setting", "image", "ttf"))
 
     return font_candidates
 
@@ -6571,17 +6574,24 @@ class ThumbnailManagerDialog(QDialog):
         self.image_folder = _resolve_account_thumbnail_dir(self.parent.data_dir, self.account_id, create=True) if self.parent else ""
         self.preview_path = os.path.join(self.parent.data_dir, "setting", "result", "_thumbnail_preview.jpg") if self.parent else ""
 
-        root = QVBoxLayout(self)
+        root = QHBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setSpacing(14)
+
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(430)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
 
         info = QLabel("썸네일 배경 JPG에 예시 문구를 써보며 폰트/스타일을 미리 조정할 수 있습니다.")
+        info.setWordWrap(True)
         info.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
-        root.addWidget(info)
+        left_layout.addWidget(info)
 
         self.source_label = QLabel("배경 이미지: 확인 중...")
         self.source_label.setStyleSheet(f"color: {NAVER_TEXT}; font-weight: bold;")
-        root.addWidget(self.source_label)
+        left_layout.addWidget(self.source_label)
 
         form = QGridLayout()
         form.setHorizontalSpacing(10)
@@ -6591,7 +6601,7 @@ class ThumbnailManagerDialog(QDialog):
         self.preview_text_entry = QLineEdit()
         self.preview_text_entry.setPlaceholderText("예: 퇴직연금 IRP 계좌 이전 방법")
         self.preview_text_entry.setText("썸네일 예시 문구")
-        form.addWidget(self.preview_text_entry, 0, 1, 1, 3)
+        form.addWidget(self.preview_text_entry, 0, 1, 1, 2)
 
         form.addWidget(QLabel("폰트 크기"), 1, 0)
         self.font_size_spin = QSpinBox()
@@ -6613,27 +6623,15 @@ class ThumbnailManagerDialog(QDialog):
 
         form.addWidget(QLabel("폰트 선택"), 3, 0)
         self.font_combo = QComboBox()
-        form.addWidget(self.font_combo, 3, 1, 1, 2)
+        form.addWidget(self.font_combo, 3, 1)
 
         refresh_btn = QPushButton("폰트 새로고침")
         refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         refresh_btn.clicked.connect(self.refresh_fonts)
-        form.addWidget(refresh_btn, 3, 3)
+        form.addWidget(refresh_btn, 3, 2)
 
-        root.addLayout(form)
-
-        self.preview_image_label = QLabel("미리보기를 생성하면 여기에 표시됩니다.")
-        self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_image_label.setMinimumHeight(280)
-        self.preview_image_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: #FFFFFF;
-                border: 2px dashed {NAVER_BORDER};
-                border-radius: 8px;
-                color: {NAVER_TEXT_SUB};
-            }}
-        """)
-        root.addWidget(self.preview_image_label)
+        left_layout.addLayout(form)
+        left_layout.addStretch()
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -6652,8 +6650,32 @@ class ThumbnailManagerDialog(QDialog):
         close_btn.setStyleSheet(f"background-color: {NAVER_RED};")
         close_btn.clicked.connect(self.accept)
         buttons.addWidget(close_btn)
+        left_layout.addLayout(buttons)
 
-        root.addLayout(buttons)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        preview_title = QLabel("썸네일 미리보기")
+        preview_title.setStyleSheet(f"color: {NAVER_TEXT}; font-weight: bold;")
+        right_layout.addWidget(preview_title)
+
+        self.preview_image_label = QLabel("미리보기를 생성하면 여기에 표시됩니다.")
+        self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_image_label.setMinimumSize(320, 420)
+        self.preview_image_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: #FFFFFF;
+                border: 2px dashed {NAVER_BORDER};
+                border-radius: 8px;
+                color: {NAVER_TEXT_SUB};
+            }}
+        """)
+        right_layout.addWidget(self.preview_image_label, 1)
+
+        root.addWidget(left_panel, 0)
+        root.addWidget(right_panel, 1)
 
         self._load_initial_values()
         self.refresh_fonts()
@@ -6728,8 +6750,10 @@ class ThumbnailManagerDialog(QDialog):
         if pixmap.isNull():
             self.parent._show_auto_close_message("⚠️ 미리보기 이미지를 불러오지 못했습니다.", QMessageBox.Icon.Warning)
             return
+        target_w = max(260, self.preview_image_label.width() - 20)
+        target_h = max(260, self.preview_image_label.height() - 20)
         self.preview_image_label.setPixmap(
-            pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            pixmap.scaled(target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         )
         self.parent._update_settings_status("👀 썸네일 미리보기 생성 완료")
 
