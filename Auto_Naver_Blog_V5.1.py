@@ -6806,7 +6806,14 @@ class ThumbnailManagerDialog(QDialog):
         refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         refresh_btn.setToolTip("TTF 폴더와 시스템 폰트를 다시 스캔합니다.")
         refresh_btn.clicked.connect(self.refresh_fonts)
-        form.addWidget(refresh_btn, 1, 2)
+        font_tools = QHBoxLayout()
+        font_tools.setSpacing(8)
+        font_tools.addWidget(refresh_btn)
+        self.font_fav_only_checkbox = QCheckBox("즐겨찾기만")
+        self.font_fav_only_checkbox.setToolTip("즐겨찾기한 글꼴만 목록에 표시합니다.")
+        font_tools.addWidget(self.font_fav_only_checkbox)
+        font_tools.addStretch()
+        form.addLayout(font_tools, 1, 2)
 
         size_style_row = QHBoxLayout()
         size_style_row.setSpacing(10)
@@ -6970,7 +6977,7 @@ class ThumbnailManagerDialog(QDialog):
 
         fav_layout = QHBoxLayout()
         fav_layout.setSpacing(8)
-        fav_layout.addWidget(QLabel("즐겨찾기"))
+        fav_layout.addWidget(QLabel("글꼴 즐겨찾기"))
         self.font_fav_add_btn = QPushButton("★ 추가")
         self.font_fav_add_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
         self.font_fav_add_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에 추가합니다.")
@@ -6981,6 +6988,9 @@ class ThumbnailManagerDialog(QDialog):
         self.font_fav_remove_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에서 제거합니다.")
         self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
         fav_layout.addWidget(self.font_fav_remove_btn)
+        self.font_fav_count_label = QLabel("0개")
+        self.font_fav_count_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        fav_layout.addWidget(self.font_fav_count_label)
         fav_layout.addStretch()
         form.addLayout(fav_layout, 12, 0, 1, 3)
 
@@ -7065,6 +7075,8 @@ class ThumbnailManagerDialog(QDialog):
         self.text_shadow_distance_spin.valueChanged.connect(self._schedule_preview_update)
         self.text_shadow_blur_spin.valueChanged.connect(self._schedule_preview_update)
         self.font_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.font_combo.currentIndexChanged.connect(self._sync_favorite_buttons)
+        self.font_fav_only_checkbox.stateChanged.connect(self.refresh_fonts)
 
     def _sync_shadow_controls(self, *_):
         enabled = bool(self.shadow_enabled_checkbox.isChecked())
@@ -7094,6 +7106,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_bold_btn.setChecked(bool(cfg.get("thumbnail_font_bold", True)))
         self.font_italic_btn.setChecked(bool(cfg.get("thumbnail_font_italic", False)))
         self.font_underline_btn.setChecked(bool(cfg.get("thumbnail_font_underline", False)))
+        self.font_fav_only_checkbox.setChecked(bool(cfg.get("thumbnail_font_favorites_only", False)))
         bg_mode = str(cfg.get("thumbnail_text_bg", "auto")).strip().lower()
         for i in range(self.text_bg_combo.count()):
             if self.text_bg_combo.itemData(i) == bg_mode:
@@ -7196,6 +7209,19 @@ class ThumbnailManagerDialog(QDialog):
     def _set_favorite_fonts(self, fonts):
         self.parent.config["thumbnail_favorite_fonts"] = fonts
 
+    def _sync_favorite_buttons(self):
+        current = str(self.font_combo.currentData() or "").strip()
+        favorites = self._get_favorite_fonts()
+        fav_norms = {os.path.normcase(os.path.abspath(fp)) for fp in favorites}
+        if not current:
+            self.font_fav_add_btn.setEnabled(False)
+            self.font_fav_remove_btn.setEnabled(False)
+            return
+        cur_norm = os.path.normcase(os.path.abspath(current))
+        is_favorite = cur_norm in fav_norms
+        self.font_fav_add_btn.setEnabled(not is_favorite)
+        self.font_fav_remove_btn.setEnabled(is_favorite)
+
     def add_current_font_to_favorites(self):
         current = str(self.font_combo.currentData() or "").strip()
         if not current:
@@ -7228,27 +7254,34 @@ class ThumbnailManagerDialog(QDialog):
         fonts = _collect_thumbnail_font_candidates(self.parent.data_dir, self.image_folder, cfg)
         favorites = self._get_favorite_fonts()
         favorite_map = {os.path.normcase(os.path.abspath(fp)): fp for fp in favorites}
+        favorites_only = bool(self.font_fav_only_checkbox.isChecked())
 
         self.font_combo.blockSignals(True)
         self.font_combo.clear()
-        self.font_combo.addItem("자동 선택", "")
+        if not favorites_only:
+            self.font_combo.addItem("자동 선택", "")
         # 즐겨찾기를 최상단에 먼저 표시
         for fp in fonts:
             norm = os.path.normcase(os.path.abspath(fp))
             if norm in favorite_map:
                 self.font_combo.addItem(f"★ {os.path.basename(fp)}", fp)
         # 나머지 폰트 표시
-        for fp in fonts:
-            norm = os.path.normcase(os.path.abspath(fp))
-            if norm in favorite_map:
-                continue
-            self.font_combo.addItem(os.path.basename(fp), fp)
+        if not favorites_only:
+            for fp in fonts:
+                norm = os.path.normcase(os.path.abspath(fp))
+                if norm in favorite_map:
+                    continue
+                self.font_combo.addItem(os.path.basename(fp), fp)
+        if self.font_combo.count() == 0:
+            self.font_combo.addItem("즐겨찾기 글꼴 없음", "")
         if selected_font:
             for i in range(self.font_combo.count()):
                 if str(self.font_combo.itemData(i) or "") == selected_font:
                     self.font_combo.setCurrentIndex(i)
                     break
         self.font_combo.blockSignals(False)
+        self.font_fav_count_label.setText(f"{len(favorites)}개")
+        self._sync_favorite_buttons()
         self._schedule_preview_update()
 
     def render_preview(self, show_popup=False):
@@ -7281,6 +7314,7 @@ class ThumbnailManagerDialog(QDialog):
         self.parent.config["thumbnail_font_bold"] = bool(cfg.get("thumbnail_font_bold", True))
         self.parent.config["thumbnail_font_italic"] = bool(cfg.get("thumbnail_font_italic", False))
         self.parent.config["thumbnail_font_underline"] = bool(cfg.get("thumbnail_font_underline", False))
+        self.parent.config["thumbnail_font_favorites_only"] = bool(self.font_fav_only_checkbox.isChecked())
         self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
         self.parent.config["thumbnail_text_color"] = str(cfg.get("thumbnail_text_color", "auto"))
         self.parent.config["thumbnail_text_border_color"] = str(cfg.get("thumbnail_text_border_color", "auto"))
