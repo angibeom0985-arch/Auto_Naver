@@ -443,7 +443,9 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     font = None
     text_width, text_height = 0, 0
 
-    font_sizes = list(range(cfg_font_size, 15, -1)) if cfg_font_size > 0 else list(range(40, 15, -2))
+    # 고정 폰트 크기에서도 루프가 비지 않도록 하한을 충분히 낮춘다.
+    # (기존 15에서 range가 비어 기본 폰트로 폴백되어 한글이 깨지는 문제 방지)
+    font_sizes = list(range(cfg_font_size, 7, -1)) if cfg_font_size > 0 else list(range(40, 9, -2))
     for font_size in font_sizes:
         loaded_font = None
         for font_path in font_candidates:
