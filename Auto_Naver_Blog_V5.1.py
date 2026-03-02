@@ -414,14 +414,8 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     cfg_font_italic = bool((config or {}).get("thumbnail_font_italic", False))
     cfg_font_underline = bool((config or {}).get("thumbnail_font_underline", False))
     cfg_text_color = str((config or {}).get("thumbnail_text_color", "auto")).strip().lower()
-    if cfg_text_color not in ("auto", "white", "black", "yellow", "red", "blue", "green"):
-        cfg_text_color = "auto"
     cfg_text_bg = str((config or {}).get("thumbnail_text_bg", "auto")).strip().lower()
-    if cfg_text_bg not in ("none", "auto", "white", "black", "yellow"):
-        cfg_text_bg = "auto"
     cfg_border = str((config or {}).get("thumbnail_text_border_color", "auto")).strip().lower()
-    if cfg_border not in ("none", "auto", "white", "black", "yellow", "red", "blue", "green"):
-        cfg_border = "auto"
     try:
         cfg_border_width = int((config or {}).get("thumbnail_text_border_width", 2))
     except Exception:
@@ -571,32 +565,49 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         "blue": (30, 136, 229),
         "green": (67, 160, 71),
     }
+    def _parse_color_value(value):
+        token = str(value or "").strip().lower()
+        if token in text_color_map:
+            return text_color_map[token]
+        if token.startswith("#"):
+            token = token[1:]
+        if re.fullmatch(r"[0-9a-fA-F]{3}", token):
+            token = "".join(ch * 2 for ch in token)
+        if re.fullmatch(r"[0-9a-fA-F]{6}", token):
+            return (int(token[0:2], 16), int(token[2:4], 16), int(token[4:6], 16))
+        return None
+
     if cfg_text_color == "auto":
         text_fill = auto_text_fill
         stroke_fill = auto_stroke_fill
     else:
-        text_fill = text_color_map.get(cfg_text_color, auto_text_fill)
+        text_fill = _parse_color_value(cfg_text_color) or auto_text_fill
         # 수동 글자색 선택 시 외곽선 자동 대비 유지
         brightness = (text_fill[0] * 0.299) + (text_fill[1] * 0.587) + (text_fill[2] * 0.114)
         stroke_fill = (20, 20, 20) if brightness >= 140 else (245, 245, 245)
 
-    border_color_map = dict(text_color_map)
     if cfg_border == "none" or cfg_border_width <= 0:
         stroke_width = 0
     else:
         stroke_width = cfg_border_width
         if cfg_border != "auto":
-            stroke_fill = border_color_map.get(cfg_border, stroke_fill)
+            stroke_fill = _parse_color_value(cfg_border) or stroke_fill
 
     bg_fill = None
     if cfg_text_bg == "auto":
         bg_fill = (255, 255, 255, 190) if mean_luma < 150 else (0, 0, 0, 150)
+    elif cfg_text_bg == "none":
+        bg_fill = None
     elif cfg_text_bg == "white":
         bg_fill = (255, 255, 255, 200)
     elif cfg_text_bg == "black":
         bg_fill = (0, 0, 0, 160)
     elif cfg_text_bg == "yellow":
         bg_fill = (255, 235, 59, 210)
+    else:
+        custom_bg = _parse_color_value(cfg_text_bg)
+        if custom_bg is not None:
+            bg_fill = (custom_bg[0], custom_bg[1], custom_bg[2], 210)
 
     if bg_fill is not None:
         if img.mode != "RGBA":
@@ -6341,7 +6352,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QComboBox, QGroupBox, QTabWidget, QMessageBox,
                               QListView, QButtonGroup, QDialog, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
                                 QFrame, QScrollArea, QStackedWidget,
-                              QSizePolicy, QSplashScreen, QFileDialog, QSpinBox)
+                              QSizePolicy, QSplashScreen, QFileDialog, QSpinBox, QColorDialog)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QEvent, QRect
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter
 
@@ -7015,8 +7026,8 @@ class ThumbnailManagerDialog(QDialog):
 
         self.text_bg_popup_btn = QPushButton("A")
         self.text_bg_popup_btn.setStyleSheet(style_btn_css)
-        self.text_bg_popup_btn.setToolTip("글자 배경색 메뉴를 엽니다.")
-        self.text_bg_popup_btn.clicked.connect(lambda: self.text_bg_combo.showPopup())
+        self.text_bg_popup_btn.setToolTip("글자 배경색을 색상 팔레트에서 선택합니다.")
+        self.text_bg_popup_btn.clicked.connect(lambda: self._pick_color_for_entry(self.text_bg_entry))
         size_style_row.addWidget(self.text_bg_popup_btn)
 
         size_style_row.addStretch(1)
@@ -7024,39 +7035,31 @@ class ThumbnailManagerDialog(QDialog):
         form.addLayout(size_style_row, 2, 1, 1, 2)
 
         form.addWidget(QLabel("글자 배경색"), 3, 0)
-        self.text_bg_combo = QComboBox()
-        self.text_bg_combo.addItem("없음", "none")
-        self.text_bg_combo.addItem("자동", "auto")
-        self.text_bg_combo.addItem("흰색", "white")
-        self.text_bg_combo.addItem("검정", "black")
-        self.text_bg_combo.addItem("노랑", "yellow")
-        self.text_bg_combo.setToolTip("텍스트 뒤 배경 박스 색상을 설정합니다.")
-        form.addWidget(self.text_bg_combo, 3, 1, 1, 2)
+        self.text_bg_entry, text_bg_tools = self._build_color_input_row(
+            default_text="auto",
+            tooltip="텍스트 뒤 배경 박스 색상입니다. auto / none / #RRGGBB",
+            allow_none=True,
+        )
+        form.addWidget(self.text_bg_entry, 3, 1)
+        form.addLayout(text_bg_tools, 3, 2)
 
         form.addWidget(QLabel("글자색"), 4, 0)
-        self.text_color_combo = QComboBox()
-        self.text_color_combo.addItem("자동", "auto")
-        self.text_color_combo.addItem("흰색", "white")
-        self.text_color_combo.addItem("검정", "black")
-        self.text_color_combo.addItem("노랑", "yellow")
-        self.text_color_combo.addItem("빨강", "red")
-        self.text_color_combo.addItem("파랑", "blue")
-        self.text_color_combo.addItem("초록", "green")
-        self.text_color_combo.setToolTip("글자 자체 색상을 설정합니다.")
-        form.addWidget(self.text_color_combo, 4, 1, 1, 2)
+        self.text_color_entry, text_color_tools = self._build_color_input_row(
+            default_text="auto",
+            tooltip="글자 색상입니다. auto / #RRGGBB",
+            allow_none=False,
+        )
+        form.addWidget(self.text_color_entry, 4, 1)
+        form.addLayout(text_color_tools, 4, 2)
 
         form.addWidget(QLabel("테두리색"), 5, 0)
-        self.text_border_combo = QComboBox()
-        self.text_border_combo.addItem("없음", "none")
-        self.text_border_combo.addItem("자동", "auto")
-        self.text_border_combo.addItem("흰색", "white")
-        self.text_border_combo.addItem("검정", "black")
-        self.text_border_combo.addItem("노랑", "yellow")
-        self.text_border_combo.addItem("빨강", "red")
-        self.text_border_combo.addItem("파랑", "blue")
-        self.text_border_combo.addItem("초록", "green")
-        self.text_border_combo.setToolTip("글자 외곽선의 색상을 설정합니다.")
-        form.addWidget(self.text_border_combo, 5, 1, 1, 2)
+        self.text_border_entry, text_border_tools = self._build_color_input_row(
+            default_text="auto",
+            tooltip="글자 외곽선 색상입니다. auto / none / #RRGGBB",
+            allow_none=True,
+        )
+        form.addWidget(self.text_border_entry, 5, 1)
+        form.addLayout(text_border_tools, 5, 2)
 
         form.addWidget(QLabel("테두리 두께"), 6, 0)
         self.text_border_width_spin = QSpinBox()
@@ -7183,9 +7186,9 @@ class ThumbnailManagerDialog(QDialog):
         self.font_bold_btn.toggled.connect(self._schedule_preview_update)
         self.font_italic_btn.toggled.connect(self._schedule_preview_update)
         self.font_underline_btn.toggled.connect(self._schedule_preview_update)
-        self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
-        self.text_color_combo.currentIndexChanged.connect(self._schedule_preview_update)
-        self.text_border_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.text_bg_entry.textChanged.connect(self._schedule_preview_update)
+        self.text_color_entry.textChanged.connect(self._schedule_preview_update)
+        self.text_border_entry.textChanged.connect(self._schedule_preview_update)
         self.text_border_width_spin.valueChanged.connect(self._schedule_preview_update)
         self.shadow_enabled_checkbox.stateChanged.connect(self._sync_shadow_controls)
         self.shadow_enabled_checkbox.stateChanged.connect(self._schedule_preview_update)
@@ -7211,6 +7214,60 @@ class ThumbnailManagerDialog(QDialog):
     def _schedule_preview_update(self):
         self.preview_timer.start()
 
+    def _normalize_color_token(self, value, allow_none=False, default_value="auto"):
+        token = str(value or "").strip().lower()
+        if not token:
+            return default_value
+        if token == "auto":
+            return token
+        if allow_none and token == "none":
+            return token
+        if token.startswith("#"):
+            body = token[1:]
+        else:
+            body = token
+        if re.fullmatch(r"[0-9a-f]{3}", body):
+            body = "".join(ch * 2 for ch in body)
+            return f"#{body}"
+        if re.fullmatch(r"[0-9a-f]{6}", body):
+            return f"#{body}"
+        return default_value
+
+    def _build_color_input_row(self, default_text="auto", tooltip="", allow_none=False):
+        entry = QLineEdit(default_text)
+        entry.setToolTip(tooltip)
+        entry.setPlaceholderText("auto / #RRGGBB" if not allow_none else "auto / none / #RRGGBB")
+
+        picker_btn = QPushButton("색상")
+        picker_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        picker_btn.setToolTip("색상 팔레트에서 선택합니다.")
+        picker_btn.clicked.connect(lambda: self._pick_color_for_entry(entry))
+
+        auto_btn = QPushButton("자동")
+        auto_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        auto_btn.setToolTip("자동 대비 색상을 사용합니다.")
+        auto_btn.clicked.connect(lambda: entry.setText("auto"))
+
+        tools = QHBoxLayout()
+        tools.setSpacing(6)
+        tools.addWidget(picker_btn)
+        tools.addWidget(auto_btn)
+        if allow_none:
+            none_btn = QPushButton("없음")
+            none_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+            none_btn.setToolTip("색상을 사용하지 않습니다.")
+            none_btn.clicked.connect(lambda: entry.setText("none"))
+            tools.addWidget(none_btn)
+        tools.addStretch(1)
+        return entry, tools
+
+    def _pick_color_for_entry(self, entry):
+        current = self._normalize_color_token(entry.text(), allow_none=True, default_value="")
+        qcolor = QColor(current) if current.startswith("#") else QColor("#000000")
+        selected = QColorDialog.getColor(qcolor, self, "색상 선택")
+        if selected.isValid():
+            entry.setText(selected.name().lower())
+
     def _change_font_size(self, delta):
         cur = int(self.font_size_spin.value())
         nxt = max(self.font_size_spin.minimum(), min(self.font_size_spin.maximum(), cur + int(delta)))
@@ -7226,21 +7283,12 @@ class ThumbnailManagerDialog(QDialog):
         self.font_italic_btn.setChecked(bool(cfg.get("thumbnail_font_italic", False)))
         self.font_underline_btn.setChecked(bool(cfg.get("thumbnail_font_underline", False)))
         self.font_fav_only_checkbox.setChecked(bool(cfg.get("thumbnail_font_favorites_only", False)))
-        bg_mode = str(cfg.get("thumbnail_text_bg", "auto")).strip().lower()
-        for i in range(self.text_bg_combo.count()):
-            if self.text_bg_combo.itemData(i) == bg_mode:
-                self.text_bg_combo.setCurrentIndex(i)
-                break
-        text_color_mode = str(cfg.get("thumbnail_text_color", "auto")).strip().lower()
-        for i in range(self.text_color_combo.count()):
-            if self.text_color_combo.itemData(i) == text_color_mode:
-                self.text_color_combo.setCurrentIndex(i)
-                break
-        border_mode = str(cfg.get("thumbnail_text_border_color", "auto")).strip().lower()
-        for i in range(self.text_border_combo.count()):
-            if self.text_border_combo.itemData(i) == border_mode:
-                self.text_border_combo.setCurrentIndex(i)
-                break
+        bg_mode = self._normalize_color_token(cfg.get("thumbnail_text_bg", "auto"), allow_none=True, default_value="auto")
+        self.text_bg_entry.setText(bg_mode)
+        text_color_mode = self._normalize_color_token(cfg.get("thumbnail_text_color", "auto"), allow_none=False, default_value="auto")
+        self.text_color_entry.setText(text_color_mode)
+        border_mode = self._normalize_color_token(cfg.get("thumbnail_text_border_color", "auto"), allow_none=True, default_value="auto")
+        self.text_border_entry.setText(border_mode)
         try:
             self.text_border_width_spin.setValue(int(cfg.get("thumbnail_text_border_width", 2) or 2))
         except Exception:
@@ -7295,9 +7343,9 @@ class ThumbnailManagerDialog(QDialog):
         base["thumbnail_font_bold"] = bool(self.font_bold_btn.isChecked())
         base["thumbnail_font_italic"] = bool(self.font_italic_btn.isChecked())
         base["thumbnail_font_underline"] = bool(self.font_underline_btn.isChecked())
-        base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
-        base["thumbnail_text_color"] = str(self.text_color_combo.currentData() or "auto").strip().lower()
-        base["thumbnail_text_border_color"] = str(self.text_border_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_text_bg"] = self._normalize_color_token(self.text_bg_entry.text(), allow_none=True, default_value="auto")
+        base["thumbnail_text_color"] = self._normalize_color_token(self.text_color_entry.text(), allow_none=False, default_value="auto")
+        base["thumbnail_text_border_color"] = self._normalize_color_token(self.text_border_entry.text(), allow_none=True, default_value="auto")
         base["thumbnail_text_border_width"] = int(self.text_border_width_spin.value())
         base["thumbnail_text_shadow_enabled"] = bool(self.shadow_enabled_checkbox.isChecked())
         base["thumbnail_text_shadow_color"] = str(self.text_shadow_color_combo.currentData() or "auto").strip().lower()
