@@ -6323,10 +6323,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QHBoxLayout, QGridLayout, QPushButton, QLabel, 
                               QLineEdit, QTextEdit, QRadioButton, QCheckBox,
                               QComboBox, QGroupBox, QTabWidget, QMessageBox,
-                              QListView, QButtonGroup, QDialog,
+                              QListView, QButtonGroup, QDialog, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
                                 QFrame, QScrollArea, QStackedWidget,
                               QSizePolicy, QSplashScreen, QFileDialog, QSpinBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QEvent, QRect
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter
 
 # 네이버 컬러 팔레트
@@ -6787,6 +6787,37 @@ class AccountFileBindingDialog(QDialog):
 class ThumbnailManagerDialog(QDialog):
     """썸네일 텍스트 스타일 관리 다이얼로그"""
 
+    _FONT_FAVORITE_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
+    class _FontItemDelegate(QStyledItemDelegate):
+        STAR_AREA_WIDTH = 26
+
+        def __init__(self, favorite_role, parent=None):
+            super().__init__(parent)
+            self.favorite_role = favorite_role
+
+        def star_rect(self, rect):
+            return QRect(rect.right() - self.STAR_AREA_WIDTH, rect.top(), self.STAR_AREA_WIDTH, rect.height())
+
+        def paint(self, painter, option, index):
+            draw_option = QStyleOptionViewItem(option)
+            text_rect = QRect(option.rect)
+            star_rect = self.star_rect(option.rect)
+            text_rect.setRight(star_rect.left() - 4)
+            draw_option.rect = text_rect
+            super().paint(painter, draw_option, index)
+
+            is_favorite = bool(index.data(self.favorite_role))
+            star_text = "★" if is_favorite else "☆"
+            if option.state & QStyle.StateFlag.State_Selected:
+                star_color = QColor("#0A0A0A")
+            else:
+                star_color = QColor(NAVER_GREEN if is_favorite else "#8A949E")
+            painter.save()
+            painter.setPen(star_color)
+            painter.drawText(star_rect, Qt.AlignmentFlag.AlignCenter, star_text)
+            painter.restore()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
@@ -6822,6 +6853,13 @@ class ThumbnailManagerDialog(QDialog):
             }}
             QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
                 border-color: {NAVER_GREEN};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #FFFFFF;
+                color: #000000;
+                border: 1px solid {NAVER_BORDER};
+                selection-background-color: {NAVER_GREEN_LIGHT};
+                selection-color: #000000;
             }}
             QPushButton {{
                 border: none;
@@ -6878,6 +6916,8 @@ class ThumbnailManagerDialog(QDialog):
         form.addWidget(QLabel("글꼴"), 1, 0)
         self.font_combo = QComboBox()
         self.font_combo.setToolTip("썸네일 제목에 사용할 폰트를 선택합니다.")
+        self.font_combo.setItemDelegate(self._FontItemDelegate(self._FONT_FAVORITE_ROLE, self.font_combo))
+        self.font_combo.view().viewport().installEventFilter(self)
         form.addWidget(self.font_combo, 1, 1)
 
         refresh_btn = QPushButton("폰트 새로고침")
@@ -7053,25 +7093,6 @@ class ThumbnailManagerDialog(QDialog):
         self.text_shadow_blur_spin.setToolTip("그림자 퍼짐(블러) 강도를 설정합니다.")
         form.addWidget(self.text_shadow_blur_spin, 11, 1)
 
-        fav_layout = QHBoxLayout()
-        fav_layout.setSpacing(8)
-        fav_layout.addWidget(QLabel("글꼴 즐겨찾기"))
-        self.font_fav_add_btn = QPushButton("★ 추가")
-        self.font_fav_add_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
-        self.font_fav_add_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에 추가합니다.")
-        self.font_fav_add_btn.clicked.connect(self.add_current_font_to_favorites)
-        fav_layout.addWidget(self.font_fav_add_btn)
-        self.font_fav_remove_btn = QPushButton("☆ 제거")
-        self.font_fav_remove_btn.setStyleSheet(f"background-color: {NAVER_RED};")
-        self.font_fav_remove_btn.setToolTip("현재 선택한 폰트를 즐겨찾기에서 제거합니다.")
-        self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
-        fav_layout.addWidget(self.font_fav_remove_btn)
-        self.font_fav_count_label = QLabel("0개")
-        self.font_fav_count_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
-        fav_layout.addWidget(self.font_fav_count_label)
-        fav_layout.addStretch()
-        form.addLayout(fav_layout, 12, 0, 1, 3)
-
         left_layout.addLayout(form)
         left_layout.addStretch(1)
 
@@ -7158,7 +7179,6 @@ class ThumbnailManagerDialog(QDialog):
         self.text_shadow_distance_spin.valueChanged.connect(self._schedule_preview_update)
         self.text_shadow_blur_spin.valueChanged.connect(self._schedule_preview_update)
         self.font_combo.currentIndexChanged.connect(self._schedule_preview_update)
-        self.font_combo.currentIndexChanged.connect(self._sync_favorite_buttons)
         self.font_fav_only_checkbox.stateChanged.connect(self.refresh_fonts)
 
     def _sync_shadow_controls(self, *_):
@@ -7292,44 +7312,38 @@ class ThumbnailManagerDialog(QDialog):
     def _set_favorite_fonts(self, fonts):
         self.parent.config["thumbnail_favorite_fonts"] = fonts
 
-    def _sync_favorite_buttons(self):
-        current = str(self.font_combo.currentData() or "").strip()
-        favorites = self._get_favorite_fonts()
-        fav_norms = {os.path.normcase(os.path.abspath(fp)) for fp in favorites}
+    def _toggle_font_favorite(self, font_path):
+        current = str(font_path or "").strip()
         if not current:
-            self.font_fav_add_btn.setEnabled(False)
-            self.font_fav_remove_btn.setEnabled(False)
-            return
-        cur_norm = os.path.normcase(os.path.abspath(current))
-        is_favorite = cur_norm in fav_norms
-        self.font_fav_add_btn.setEnabled(not is_favorite)
-        self.font_fav_remove_btn.setEnabled(is_favorite)
-
-    def add_current_font_to_favorites(self):
-        current = str(self.font_combo.currentData() or "").strip()
-        if not current:
-            self.parent._show_auto_close_message("⚠️ 자동 선택은 즐겨찾기에 추가할 수 없습니다.", QMessageBox.Icon.Warning)
             return
         favorites = self._get_favorite_fonts()
         norm_set = {os.path.normcase(os.path.abspath(fp)) for fp in favorites}
         norm_cur = os.path.normcase(os.path.abspath(current))
-        if norm_cur not in norm_set:
+        if norm_cur in norm_set:
+            favorites = [fp for fp in favorites if os.path.normcase(os.path.abspath(fp)) != norm_cur]
+            status = f"⭐ 즐겨찾기 제거: {os.path.basename(current)}"
+        else:
             favorites.append(current)
-            self._set_favorite_fonts(favorites)
-            self.parent.save_config_file()
-        self.refresh_fonts()
-        self.parent._update_settings_status(f"⭐ 즐겨찾기 추가: {os.path.basename(current)}")
-
-    def remove_current_font_from_favorites(self):
-        current = str(self.font_combo.currentData() or "").strip()
-        if not current:
-            return
-        norm_cur = os.path.normcase(os.path.abspath(current))
-        favorites = [fp for fp in self._get_favorite_fonts() if os.path.normcase(os.path.abspath(fp)) != norm_cur]
+            status = f"⭐ 즐겨찾기 추가: {os.path.basename(current)}"
         self._set_favorite_fonts(favorites)
         self.parent.save_config_file()
         self.refresh_fonts()
-        self.parent._update_settings_status(f"⭐ 즐겨찾기 제거: {os.path.basename(current)}")
+        self.parent._update_settings_status(status)
+
+    def eventFilter(self, watched, event):
+        if watched is self.font_combo.view().viewport() and event.type() == QEvent.Type.MouseButtonPress:
+            index = self.font_combo.view().indexAt(event.pos())
+            if index.isValid():
+                visual = self.font_combo.view().visualRect(index)
+                star_rect = self.font_combo.itemDelegate().star_rect(visual)
+                if star_rect.contains(event.pos()):
+                    font_path = str(index.data(Qt.ItemDataRole.UserRole) or "").strip()
+                    was_popup_open = self.font_combo.view().isVisible()
+                    self._toggle_font_favorite(font_path)
+                    if was_popup_open:
+                        QTimer.singleShot(0, self.font_combo.showPopup)
+                    return True
+        return super().eventFilter(watched, event)
 
     def refresh_fonts(self):
         cfg = self._current_preview_config()
@@ -7343,11 +7357,13 @@ class ThumbnailManagerDialog(QDialog):
         self.font_combo.clear()
         if not favorites_only:
             self.font_combo.addItem("자동 선택", "")
+            self.font_combo.setItemData(self.font_combo.count() - 1, False, self._FONT_FAVORITE_ROLE)
         # 즐겨찾기를 최상단에 먼저 표시
         for fp in fonts:
             norm = os.path.normcase(os.path.abspath(fp))
             if norm in favorite_map:
-                self.font_combo.addItem(f"★ {os.path.basename(fp)}", fp)
+                self.font_combo.addItem(os.path.basename(fp), fp)
+                self.font_combo.setItemData(self.font_combo.count() - 1, True, self._FONT_FAVORITE_ROLE)
         # 나머지 폰트 표시
         if not favorites_only:
             for fp in fonts:
@@ -7355,16 +7371,17 @@ class ThumbnailManagerDialog(QDialog):
                 if norm in favorite_map:
                     continue
                 self.font_combo.addItem(os.path.basename(fp), fp)
+                self.font_combo.setItemData(self.font_combo.count() - 1, False, self._FONT_FAVORITE_ROLE)
         if self.font_combo.count() == 0:
             self.font_combo.addItem("즐겨찾기 글꼴 없음", "")
+            self.font_combo.setItemData(self.font_combo.count() - 1, False, self._FONT_FAVORITE_ROLE)
         if selected_font:
             for i in range(self.font_combo.count()):
                 if str(self.font_combo.itemData(i) or "") == selected_font:
                     self.font_combo.setCurrentIndex(i)
                     break
         self.font_combo.blockSignals(False)
-        self.font_fav_count_label.setText(f"{len(favorites)}개")
-        self._sync_favorite_buttons()
+        self.font_combo.view().viewport().update()
         self._schedule_preview_update()
 
     def render_preview(self, show_popup=False):
