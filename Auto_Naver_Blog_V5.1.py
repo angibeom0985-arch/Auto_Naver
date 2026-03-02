@@ -6700,8 +6700,17 @@ class ThumbnailManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setWindowFlag(Qt.WindowType.MSWindowsFixedSizeDialogHint, False)
+        self.setSizeGripEnabled(True)
         self.setWindowTitle("썸네일 관리")
-        self.setMinimumSize(940, 640)
+        self.setMinimumSize(860, 580)
         self.resize(1200, 760)
 
         self.setStyleSheet(f"""
