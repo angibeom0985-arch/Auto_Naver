@@ -1477,7 +1477,7 @@ class NaverBlogAutomation:
                 else:
                     content = self._generate_content_with_gemini_web_with_retry(full_prompt)
             else:
-                self._update_status(f"🔄 AI에게 글 생성 요청 중... (모델: {model_name})")
+                self._update_status("🔄 AI에게 글 생성 요청 중...")
                 response = self.model.generate_content(full_prompt)  # type: ignore
                 content = getattr(response, "text", "")  # type: ignore
 
