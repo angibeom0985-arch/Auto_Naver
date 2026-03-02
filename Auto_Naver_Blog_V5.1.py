@@ -7637,6 +7637,7 @@ class NaverBlogGUI(QMainWindow):
     ui_state_signal = pyqtSignal(bool, bool, bool, bool)  # start, stop, pause, resume
     ui_message_signal = pyqtSignal(str, str, str)  # title, message, type
     ui_refresh_status_signal = pyqtSignal()
+    runtime_error_help_signal = pyqtSignal(str, str, str)  # context, error_type, error_message
     
     def __init__(self):
         super().__init__()
@@ -7669,10 +7670,13 @@ class NaverBlogGUI(QMainWindow):
         self.ui_state_signal.connect(self._set_control_buttons_safe)
         self.ui_message_signal.connect(self._show_message_safe)
         self.ui_refresh_status_signal.connect(self.update_status_display)
+        self.runtime_error_help_signal.connect(self._show_runtime_error_help_safe)
 
         # 로그 자동 스크롤 상태 관리
         self._log_autoscroll = {}
         self._log_autoscroll_objects = {}
+        self._latest_david_message = ""
+        self._latest_runtime_error_help_signature = None
         
         # 아이콘 설정 (모든 창에 적용)
         # 1. base_dir (내부 리소스) 확인
@@ -8608,6 +8612,58 @@ class NaverBlogGUI(QMainWindow):
         self.log_scroll = log_scroll
         self._register_log_scroll_area(self.log_scroll, self.log_label)
         progress_card.content_layout.addWidget(log_scroll)
+
+        # 오류 대응 가이드 패널 (오류 발생 시 표시)
+        self.runtime_help_frame = QFrame()
+        self.runtime_help_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: #FFFFFF;
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 10px;
+            }}
+        """)
+        runtime_help_layout = QVBoxLayout(self.runtime_help_frame)
+        runtime_help_layout.setContentsMargins(10, 8, 10, 8)
+        runtime_help_layout.setSpacing(6)
+
+        runtime_help_title = QLabel("🚨 오류 빠른 대응")
+        runtime_help_title.setFont(QFont(self.font_family, 12, QFont.Weight.Bold))
+        runtime_help_layout.addWidget(runtime_help_title)
+
+        self.runtime_help_solution_label = QLabel("오류 발생 시 해결 방법이 여기에 표시됩니다.")
+        self.runtime_help_solution_label.setWordWrap(True)
+        self.runtime_help_solution_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.runtime_help_solution_label.setStyleSheet(f"color: {NAVER_TEXT};")
+        runtime_help_layout.addWidget(self.runtime_help_solution_label)
+
+        runtime_help_msg_title = QLabel("📨 데이비에게 전달할 메시지")
+        runtime_help_msg_title.setFont(QFont(self.font_family, 11, QFont.Weight.Bold))
+        runtime_help_layout.addWidget(runtime_help_msg_title)
+
+        self.runtime_help_message_text = QTextEdit()
+        self.runtime_help_message_text.setReadOnly(True)
+        self.runtime_help_message_text.setMinimumHeight(92)
+        self.runtime_help_message_text.setStyleSheet(f"""
+            QTextEdit {{
+                border: 1px solid {NAVER_BORDER};
+                border-radius: 8px;
+                background-color: #F9FAFB;
+                color: {NAVER_TEXT};
+                padding: 6px;
+            }}
+        """)
+        runtime_help_layout.addWidget(self.runtime_help_message_text)
+
+        runtime_help_btn_row = QHBoxLayout()
+        runtime_help_btn_row.addStretch()
+        self.runtime_help_copy_btn = QPushButton("📋 전달 메시지 복사")
+        self.runtime_help_copy_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        self.runtime_help_copy_btn.clicked.connect(self._copy_runtime_help_message)
+        runtime_help_btn_row.addWidget(self.runtime_help_copy_btn)
+        runtime_help_layout.addLayout(runtime_help_btn_row)
+
+        self.runtime_help_frame.setVisible(False)
+        progress_card.content_layout.addWidget(self.runtime_help_frame)
         
         # 진행 현황 카드는 확장 가능하도록 유지
         
@@ -11820,6 +11876,70 @@ class NaverBlogGUI(QMainWindow):
             pass
         return diag
 
+    def _recommend_runtime_solution(self, context, error_type, error_message):
+        t = str(error_type or "").lower()
+        m = str(error_message or "").lower()
+        c = str(context or "").lower()
+
+        if "permission" in t or "winerror 32" in m or "access is denied" in m:
+            return "파일 점유/권한 문제입니다. 열려 있는 텍스트/이미지 파일과 탐색기 미리보기를 닫고, 프로그램을 관리자 권한으로 다시 실행하세요."
+        if "timeout" in t or "timed out" in m:
+            return "응답 지연 오류입니다. 인터넷 상태를 확인하고 네이버/AI 사이트 로그인 유지 여부를 확인한 뒤 다시 시작하세요."
+        if "nosuchelement" in t or "element" in m:
+            return "웹 화면 요소를 찾지 못했습니다. 브라우저 창을 닫지 말고 로그인 상태를 확인한 뒤 재시도하세요. 반복되면 UI 변경 가능성이 있어 점검이 필요합니다."
+        if "devtoolsactiveport" in m or "session not created" in m or "chrome" in m:
+            return "브라우저 세션 생성 오류입니다. 크롬/크롬드라이버 버전을 업데이트하고 모든 크롬 프로세스를 종료 후 다시 실행하세요."
+        if "gemini" in c or "gemini" in m:
+            return "Gemini 웹 연동 오류입니다. 구글 로그인 상태를 확인하고 보안 인증(2단계/차단 안내)을 해제한 뒤 다시 시도하세요."
+        return "일시 오류일 수 있습니다. 프로그램 재시작 후 동일 오류가 반복되면 아래 전달 메시지를 복사해 데이비에게 전달하세요."
+
+    def _build_david_message(self, context, error_type, error_message):
+        diag = self._collect_runtime_diagnostics()
+        lines = [
+            "[오류 전달]",
+            f"- 발생 시간: {diag.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}",
+            f"- 오류 위치: {context}",
+            f"- 오류 종류: {error_type}",
+            f"- 오류 메시지: {error_message}",
+            f"- OS: {diag.get('os', '')}",
+            f"- Python: {diag.get('python', '')}",
+            f"- AI 모드: {diag.get('gemini_mode', '')} / {diag.get('web_ai_provider', '')}",
+            f"- 마지막 AI 오류 코드: {diag.get('last_ai_error', '')}",
+            f"- 현재 URL: {diag.get('current_url', '')}",
+            f"- 오류 로그 파일: {os.path.join(self.data_dir, 'setting', 'etc', 'runtime_errors.log')}",
+            "동일 오류가 반복되어 확인 부탁드립니다.",
+        ]
+        return "\n".join(lines)
+
+    def _show_runtime_error_help_safe(self, context, error_type, error_message):
+        solution = self._recommend_runtime_solution(context, error_type, error_message)
+        david_message = self._build_david_message(context, error_type, error_message)
+        self._latest_david_message = david_message
+        if hasattr(self, "runtime_help_solution_label"):
+            self.runtime_help_solution_label.setText(f"🛠️ 해결 방법: {solution}")
+        if hasattr(self, "runtime_help_message_text"):
+            self.runtime_help_message_text.setPlainText(david_message)
+        if hasattr(self, "runtime_help_copy_btn"):
+            self.runtime_help_copy_btn.setText("📋 전달 메시지 복사")
+        if hasattr(self, "runtime_help_frame"):
+            self.runtime_help_frame.setVisible(True)
+
+        self.update_progress_status(f"🛠️ 해결 방법: {solution}")
+        self.update_progress_status("📨 데이비 전달 메시지: 아래 '전달 메시지 복사' 버튼으로 즉시 복사하세요.")
+
+    def _copy_runtime_help_message(self):
+        msg = str(getattr(self, "_latest_david_message", "") or "").strip()
+        if not msg:
+            self._show_auto_close_message("⚠️ 복사할 오류 메시지가 없습니다.", QMessageBox.Icon.Warning)
+            return
+        try:
+            pyperclip.copy(msg)
+            if hasattr(self, "runtime_help_copy_btn"):
+                self.runtime_help_copy_btn.setText("✅ 복사 완료")
+            self._show_auto_close_message("✅ 데이비 전달 메시지를 복사했습니다.", QMessageBox.Icon.Information)
+        except Exception:
+            self._show_auto_close_message("❌ 클립보드 복사에 실패했습니다.", QMessageBox.Icon.Warning)
+
     def _write_runtime_error_log(self, context, error):
         """운영 중 예외를 파일에 기록"""
         try:
@@ -11833,6 +11953,12 @@ class NaverBlogGUI(QMainWindow):
                 f.write("\n[diagnostics]\n")
                 f.write(json.dumps(self._collect_runtime_diagnostics(), ensure_ascii=False, indent=2))
                 f.write("\n" + ("-" * 80) + "\n")
+            error_type = type(error).__name__
+            error_message = str(error)
+            signature = f"{context}|{error_type}|{error_message}"
+            if signature != self._latest_runtime_error_help_signature:
+                self._latest_runtime_error_help_signature = signature
+                self.runtime_error_help_signal.emit(str(context), error_type, error_message)
         except Exception:
             pass
 
