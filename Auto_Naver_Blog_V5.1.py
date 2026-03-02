@@ -6528,6 +6528,222 @@ class AccountFileBindingDialog(QDialog):
         self.parent._show_auto_close_message("❌ 썸네일 파일 저장에 실패했습니다.", QMessageBox.Icon.Warning)
 
 
+class ThumbnailManagerDialog(QDialog):
+    """썸네일 텍스트 스타일 관리 다이얼로그"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("썸네일 관리")
+        self.setMinimumSize(760, 620)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {NAVER_BG};
+            }}
+            QLabel {{
+                color: {NAVER_TEXT};
+                font-size: 13px;
+            }}
+            QLineEdit, QComboBox, QSpinBox {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 6px 10px;
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                font-size: 13px;
+                min-height: 30px;
+            }}
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+            QPushButton {{
+                border: none;
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: bold;
+                color: white;
+            }}
+        """)
+
+        self.account_id = self.parent._selected_naver_account_id() if self.parent else ""
+        self.image_folder = _resolve_account_thumbnail_dir(self.parent.data_dir, self.account_id, create=True) if self.parent else ""
+        self.preview_path = os.path.join(self.parent.data_dir, "setting", "result", "_thumbnail_preview.jpg") if self.parent else ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+
+        info = QLabel("썸네일 배경 JPG에 예시 문구를 써보며 폰트/스타일을 미리 조정할 수 있습니다.")
+        info.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        root.addWidget(info)
+
+        self.source_label = QLabel("배경 이미지: 확인 중...")
+        self.source_label.setStyleSheet(f"color: {NAVER_TEXT}; font-weight: bold;")
+        root.addWidget(self.source_label)
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(8)
+
+        form.addWidget(QLabel("예시 문구"), 0, 0)
+        self.preview_text_entry = QLineEdit()
+        self.preview_text_entry.setPlaceholderText("예: 퇴직연금 IRP 계좌 이전 방법")
+        self.preview_text_entry.setText("썸네일 예시 문구")
+        form.addWidget(self.preview_text_entry, 0, 1, 1, 3)
+
+        form.addWidget(QLabel("폰트 크기"), 1, 0)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(0, 72)
+        self.font_size_spin.setSpecialValueText("자동")
+        form.addWidget(self.font_size_spin, 1, 1)
+
+        self.font_bold_checkbox = QCheckBox("볼드체")
+        form.addWidget(self.font_bold_checkbox, 1, 2)
+
+        form.addWidget(QLabel("글자 배경색"), 2, 0)
+        self.text_bg_combo = QComboBox()
+        self.text_bg_combo.addItem("없음", "none")
+        self.text_bg_combo.addItem("자동", "auto")
+        self.text_bg_combo.addItem("흰색", "white")
+        self.text_bg_combo.addItem("검정", "black")
+        self.text_bg_combo.addItem("노랑", "yellow")
+        form.addWidget(self.text_bg_combo, 2, 1, 1, 2)
+
+        form.addWidget(QLabel("폰트 선택"), 3, 0)
+        self.font_combo = QComboBox()
+        form.addWidget(self.font_combo, 3, 1, 1, 2)
+
+        refresh_btn = QPushButton("폰트 새로고침")
+        refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        refresh_btn.clicked.connect(self.refresh_fonts)
+        form.addWidget(refresh_btn, 3, 3)
+
+        root.addLayout(form)
+
+        self.preview_image_label = QLabel("미리보기를 생성하면 여기에 표시됩니다.")
+        self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_image_label.setMinimumHeight(280)
+        self.preview_image_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: #FFFFFF;
+                border: 2px dashed {NAVER_BORDER};
+                border-radius: 8px;
+                color: {NAVER_TEXT_SUB};
+            }}
+        """)
+        root.addWidget(self.preview_image_label)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        preview_btn = QPushButton("👀 미리보기")
+        preview_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
+        preview_btn.clicked.connect(self.render_preview)
+        buttons.addWidget(preview_btn)
+
+        save_btn = QPushButton("💾 설정 저장")
+        save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.clicked.connect(self.save_settings)
+        buttons.addWidget(save_btn)
+
+        close_btn = QPushButton("닫기")
+        close_btn.setStyleSheet(f"background-color: {NAVER_RED};")
+        close_btn.clicked.connect(self.accept)
+        buttons.addWidget(close_btn)
+
+        root.addLayout(buttons)
+
+        self._load_initial_values()
+        self.refresh_fonts()
+        self.render_preview()
+
+    def _load_initial_values(self):
+        cfg = self.parent.config if self.parent else {}
+        try:
+            self.font_size_spin.setValue(int(cfg.get("thumbnail_font_size", 0) or 0))
+        except Exception:
+            self.font_size_spin.setValue(0)
+        self.font_bold_checkbox.setChecked(bool(cfg.get("thumbnail_font_bold", True)))
+        bg_mode = str(cfg.get("thumbnail_text_bg", "auto")).strip().lower()
+        for i in range(self.text_bg_combo.count()):
+            if self.text_bg_combo.itemData(i) == bg_mode:
+                self.text_bg_combo.setCurrentIndex(i)
+                break
+        src = self._pick_source_image()
+        if src:
+            self.source_label.setText(f"배경 이미지: {os.path.basename(src)}")
+        else:
+            self.source_label.setText("배경 이미지: JPG 없음")
+
+    def _pick_source_image(self):
+        try:
+            if not os.path.isdir(self.image_folder):
+                return ""
+            jpg_files = [f for f in os.listdir(self.image_folder) if f.lower().endswith(".jpg")]
+            if not jpg_files:
+                return ""
+            jpg_files.sort()
+            return os.path.join(self.image_folder, jpg_files[0])
+        except Exception:
+            return ""
+
+    def _current_preview_config(self):
+        base = dict(self.parent.config) if self.parent else {}
+        base["thumbnail_font_size"] = int(self.font_size_spin.value())
+        base["thumbnail_font_bold"] = bool(self.font_bold_checkbox.isChecked())
+        base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_font_file"] = str(self.font_combo.currentData() or "").strip()
+        return base
+
+    def refresh_fonts(self):
+        cfg = self._current_preview_config()
+        selected_font = str(cfg.get("thumbnail_font_file", "")).strip()
+        fonts = _collect_thumbnail_font_candidates(self.parent.data_dir, self.image_folder, cfg)
+
+        self.font_combo.blockSignals(True)
+        self.font_combo.clear()
+        self.font_combo.addItem("자동 선택", "")
+        for fp in fonts:
+            self.font_combo.addItem(os.path.basename(fp), fp)
+        if selected_font:
+            for i in range(self.font_combo.count()):
+                if str(self.font_combo.itemData(i) or "") == selected_font:
+                    self.font_combo.setCurrentIndex(i)
+                    break
+        self.font_combo.blockSignals(False)
+
+    def render_preview(self):
+        src = self._pick_source_image()
+        if not src:
+            self.parent._show_auto_close_message("⚠️ 썸네일 폴더에 JPG 파일이 없습니다.", QMessageBox.Icon.Warning)
+            return
+        cfg = self._current_preview_config()
+        text = self.preview_text_entry.text().strip() or "썸네일 예시 문구"
+        fonts = _collect_thumbnail_font_candidates(self.parent.data_dir, self.image_folder, cfg)
+        _render_thumbnail_image(src, self.preview_path, text, cfg, fonts)
+
+        pixmap = QPixmap(self.preview_path)
+        if pixmap.isNull():
+            self.parent._show_auto_close_message("⚠️ 미리보기 이미지를 불러오지 못했습니다.", QMessageBox.Icon.Warning)
+            return
+        self.preview_image_label.setPixmap(
+            pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        )
+        self.parent._update_settings_status("👀 썸네일 미리보기 생성 완료")
+
+    def save_settings(self):
+        cfg = self._current_preview_config()
+        self.parent.config["thumbnail_font_size"] = int(cfg.get("thumbnail_font_size", 0))
+        self.parent.config["thumbnail_font_bold"] = bool(cfg.get("thumbnail_font_bold", True))
+        self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
+        self.parent.config["thumbnail_font_file"] = str(cfg.get("thumbnail_font_file", ""))
+        self.parent.save_config_file()
+        self.parent._update_settings_status("✅ 썸네일 관리 설정이 저장되었습니다")
+        self.parent._show_auto_close_message("✅ 썸네일 관리 설정이 저장되었습니다", QMessageBox.Icon.Information)
+
+
 class RelatedPostsAccountDialog(QDialog):
     """계정별 관련 글(섹션 제목/블로그 주소) 설정 다이얼로그"""
 
@@ -8478,6 +8694,26 @@ class NaverBlogGUI(QMainWindow):
         """)
         thumbnail_open_btn.clicked.connect(lambda: self.open_account_file_binding_dialog("thumbnail"))
         thumbnail_layout.addWidget(thumbnail_open_btn)
+
+        thumbnail_manage_btn = QPushButton("⚙ 관리")
+        thumbnail_manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        thumbnail_manage_btn.setFixedSize(85, 24)
+        thumbnail_manage_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {NAVER_GREEN};
+                border: none;
+                border-radius: 6px;
+                color: white;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_GREEN_HOVER};
+            }}
+        """)
+        thumbnail_manage_btn.clicked.connect(self.open_thumbnail_manager_dialog)
+        thumbnail_layout.addWidget(thumbnail_manage_btn)
         
         file_grid.addWidget(thumbnail_widget, 1, 0)
         
@@ -8522,119 +8758,9 @@ class NaverBlogGUI(QMainWindow):
         thumbnail_note.setStyleSheet(f"color: {NAVER_TEXT_SUB}; background-color: transparent;")
         file_card.content_layout.addWidget(thumbnail_note)
 
-        # 썸네일 텍스트 스타일 설정
-        thumbnail_style_frame = QFrame()
-        thumbnail_style_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: #FFFFFF;
-                border: 1px solid {NAVER_BORDER};
-                border-radius: 8px;
-            }}
-        """)
-        thumbnail_style_layout = QGridLayout(thumbnail_style_frame)
-        thumbnail_style_layout.setContentsMargins(10, 10, 10, 10)
-        thumbnail_style_layout.setHorizontalSpacing(10)
-        thumbnail_style_layout.setVerticalSpacing(8)
-
-        thumbnail_style_title = QLabel("🛠️ 썸네일 제목 스타일")
-        thumbnail_style_title.setFont(QFont(self.font_family, 12, QFont.Weight.Bold))
-        thumbnail_style_title.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
-        thumbnail_style_layout.addWidget(thumbnail_style_title, 0, 0, 1, 3)
-
-        font_size_label = QLabel("폰트 크기")
-        self.thumbnail_font_size_spin = QSpinBox()
-        self.thumbnail_font_size_spin.setRange(0, 72)
-        self.thumbnail_font_size_spin.setSpecialValueText("자동")
-        self.thumbnail_font_size_spin.setValue(int(self.config.get("thumbnail_font_size", 0) or 0))
-        self.thumbnail_font_size_spin.setToolTip("0=자동, 16~72=고정 크기")
-        thumbnail_style_layout.addWidget(font_size_label, 1, 0)
-        thumbnail_style_layout.addWidget(self.thumbnail_font_size_spin, 1, 1)
-
-        self.thumbnail_font_bold_checkbox = QCheckBox("볼드체")
-        self.thumbnail_font_bold_checkbox.setChecked(bool(self.config.get("thumbnail_font_bold", True)))
-        thumbnail_style_layout.addWidget(self.thumbnail_font_bold_checkbox, 1, 2)
-
-        text_bg_label = QLabel("글자 배경색")
-        self.thumbnail_text_bg_combo = QComboBox()
-        self.thumbnail_text_bg_combo.addItem("없음", "none")
-        self.thumbnail_text_bg_combo.addItem("자동", "auto")
-        self.thumbnail_text_bg_combo.addItem("흰색", "white")
-        self.thumbnail_text_bg_combo.addItem("검정", "black")
-        self.thumbnail_text_bg_combo.addItem("노랑", "yellow")
-        saved_bg = str(self.config.get("thumbnail_text_bg", "auto")).strip().lower()
-        for i in range(self.thumbnail_text_bg_combo.count()):
-            if self.thumbnail_text_bg_combo.itemData(i) == saved_bg:
-                self.thumbnail_text_bg_combo.setCurrentIndex(i)
-                break
-        thumbnail_style_layout.addWidget(text_bg_label, 2, 0)
-        thumbnail_style_layout.addWidget(self.thumbnail_text_bg_combo, 2, 1, 1, 2)
-
-        font_select_label = QLabel("폰트 선택")
-        self.thumbnail_font_combo = QComboBox()
-        self.thumbnail_font_combo.setMinimumWidth(230)
-        self.thumbnail_font_refresh_btn = QPushButton("새로고침")
-        self.thumbnail_font_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.thumbnail_font_refresh_btn.setMinimumHeight(30)
-        self.thumbnail_font_refresh_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {NAVER_BLUE};
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #0066E6;
-            }}
-        """)
-        self.thumbnail_font_refresh_btn.clicked.connect(self.refresh_thumbnail_font_options)
-        thumbnail_style_layout.addWidget(font_select_label, 3, 0)
-        thumbnail_style_layout.addWidget(self.thumbnail_font_combo, 3, 1)
-        thumbnail_style_layout.addWidget(self.thumbnail_font_refresh_btn, 3, 2)
-
-        preview_title_label = QLabel("미리보기 제목")
-        self.thumbnail_preview_title_entry = QLineEdit()
-        self.thumbnail_preview_title_entry.setPlaceholderText("예: 자취방 냄새 제거하는 현실적인 방법")
-        self.thumbnail_preview_title_entry.setText("썸네일 미리보기 제목")
-        thumbnail_style_layout.addWidget(preview_title_label, 4, 0)
-        thumbnail_style_layout.addWidget(self.thumbnail_preview_title_entry, 4, 1, 1, 2)
-
-        self.thumbnail_preview_btn = QPushButton("👀 미리보기 생성")
-        self.thumbnail_preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.thumbnail_preview_btn.setMinimumHeight(34)
-        self.thumbnail_preview_btn.setStyleSheet(save_btn_style)
-        self.thumbnail_preview_btn.clicked.connect(self.preview_thumbnail_style)
-        thumbnail_style_layout.addWidget(self.thumbnail_preview_btn, 5, 2)
-
-        thumbnail_style_save_btn = QPushButton("💾 스타일 저장")
-        thumbnail_style_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        thumbnail_style_save_btn.setMinimumHeight(34)
-        thumbnail_style_save_btn.setStyleSheet(save_btn_style)
-        thumbnail_style_save_btn.clicked.connect(self.save_thumbnail_style_settings)
-        thumbnail_style_layout.addWidget(thumbnail_style_save_btn, 6, 2)
-
-        file_card.content_layout.addWidget(thumbnail_style_frame)
-
-        self.thumbnail_preview_image_label = QLabel("썸네일 미리보기")
-        self.thumbnail_preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumbnail_preview_image_label.setMinimumHeight(220)
-        self.thumbnail_preview_image_label.setStyleSheet(f"""
-            QLabel {{
-                border: 2px dashed {NAVER_BORDER};
-                border-radius: 8px;
-                background-color: #FFFFFF;
-                color: {NAVER_TEXT_SUB};
-            }}
-        """)
-        file_card.content_layout.addWidget(self.thumbnail_preview_image_label)
-
-        self.refresh_thumbnail_font_options()
-
         file_card.content_layout.addStretch()
-        
-        file_card.setMinimumHeight(max(card_min_height, 380))
+
+        file_card.setMinimumHeight(card_min_height)
         
         layout.addWidget(file_card, 2, 1)
         
@@ -9070,7 +9196,6 @@ class NaverBlogGUI(QMainWindow):
             return
         self._apply_naver_accounts_to_ui(slots, index)
         self.save_config_file()
-        self.refresh_thumbnail_font_options()
         self.update_status_display()
         self._update_settings_summary()
         self._update_settings_status(f"👤 작업 계정이 계정 {index + 1}로 변경되었습니다")
@@ -9159,79 +9284,6 @@ class NaverBlogGUI(QMainWindow):
     def _selected_thumbnail_dir(self, create=True):
         account_id = self._selected_naver_account_id()
         return _resolve_account_thumbnail_dir(self.data_dir, account_id, create=create)
-
-    def refresh_thumbnail_font_options(self):
-        """썸네일 폰트 선택 목록 새로고침"""
-        if not hasattr(self, "thumbnail_font_combo"):
-            return
-        account_id = self._selected_naver_account_id()
-        image_folder = _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
-        selected_now = str(self.config.get("thumbnail_font_file", "")).strip()
-
-        fonts = _collect_thumbnail_font_candidates(self.data_dir, image_folder, self.config)
-        self.thumbnail_font_combo.blockSignals(True)
-        self.thumbnail_font_combo.clear()
-        self.thumbnail_font_combo.addItem("자동 선택", "")
-        for fp in fonts:
-            label = os.path.basename(fp)
-            parent_name = os.path.basename(os.path.dirname(fp))
-            if parent_name.lower() == "ttf":
-                label = f"{label} (ttf)"
-            self.thumbnail_font_combo.addItem(label, fp)
-
-        applied_idx = 0
-        if selected_now:
-            for i in range(self.thumbnail_font_combo.count()):
-                if str(self.thumbnail_font_combo.itemData(i) or "").strip() == selected_now:
-                    applied_idx = i
-                    break
-        self.thumbnail_font_combo.setCurrentIndex(applied_idx)
-        self.thumbnail_font_combo.blockSignals(False)
-        self._update_settings_status(f"🔤 썸네일 폰트 목록 갱신: {max(0, self.thumbnail_font_combo.count() - 1)}개")
-
-    def preview_thumbnail_style(self):
-        """현재 썸네일 스타일로 미리보기 이미지 생성"""
-        if not hasattr(self, "thumbnail_preview_image_label"):
-            return
-        try:
-            account_id = self._selected_naver_account_id()
-            image_folder = _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
-            jpg_files = [f for f in os.listdir(image_folder) if f.lower().endswith(".jpg")]
-            if not jpg_files:
-                self._show_auto_close_message("⚠️ 썸네일 폴더에 JPG 파일이 없어 미리보기를 만들 수 없습니다.", QMessageBox.Icon.Warning)
-                return
-
-            source_image_path = os.path.join(image_folder, jpg_files[0])
-            preview_title = self.thumbnail_preview_title_entry.text().strip() if hasattr(self, "thumbnail_preview_title_entry") else ""
-            if not preview_title:
-                preview_title = "썸네일 미리보기 제목"
-
-            preview_cfg = dict(self.config)
-            preview_cfg["thumbnail_font_size"] = int(self.thumbnail_font_size_spin.value()) if hasattr(self, "thumbnail_font_size_spin") else 0
-            preview_cfg["thumbnail_font_bold"] = bool(self.thumbnail_font_bold_checkbox.isChecked()) if hasattr(self, "thumbnail_font_bold_checkbox") else True
-            preview_cfg["thumbnail_text_bg"] = str(self.thumbnail_text_bg_combo.currentData() or "auto").strip().lower() if hasattr(self, "thumbnail_text_bg_combo") else "auto"
-            preview_cfg["thumbnail_font_file"] = str(self.thumbnail_font_combo.currentData() or "").strip() if hasattr(self, "thumbnail_font_combo") else ""
-
-            preview_path = os.path.join(self.data_dir, "setting", "result", "_thumbnail_preview.jpg")
-            font_candidates = _collect_thumbnail_font_candidates(self.data_dir, image_folder, preview_cfg)
-            _render_thumbnail_image(
-                source_image_path=source_image_path,
-                output_path=preview_path,
-                title=preview_title,
-                config=preview_cfg,
-                font_candidates=font_candidates
-            )
-
-            pixmap = QPixmap(preview_path)
-            if pixmap.isNull():
-                self._show_auto_close_message("⚠️ 미리보기 이미지를 불러오지 못했습니다.", QMessageBox.Icon.Warning)
-                return
-            self.thumbnail_preview_image_label.setPixmap(
-                pixmap.scaled(220, 220, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            )
-            self._update_settings_status("👀 썸네일 미리보기 생성 완료")
-        except Exception as e:
-            self._show_auto_close_message(f"❌ 미리보기 생성 실패: {str(e)}", QMessageBox.Icon.Warning)
 
     def _account_binding_preview_path(self, account_id, mode):
         if mode == "keywords":
@@ -9346,6 +9398,10 @@ class NaverBlogGUI(QMainWindow):
         if dialog.exec():
             self._update_settings_status("✅ 계정별 파일 적용 설정이 반영되었습니다.")
             self.update_status_display()
+
+    def open_thumbnail_manager_dialog(self):
+        dialog = ThumbnailManagerDialog(self)
+        dialog.exec()
 
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
         normalized = []
@@ -9488,29 +9544,6 @@ class NaverBlogGUI(QMainWindow):
         self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
         if hasattr(self, "use_related_posts_checkbox"):
             self.toggle_related_posts()
-
-        # 썸네일 제목 스타일
-        if hasattr(self, "thumbnail_font_size_spin"):
-            try:
-                self.thumbnail_font_size_spin.setValue(int(self.config.get("thumbnail_font_size", 0) or 0))
-            except Exception:
-                self.thumbnail_font_size_spin.setValue(0)
-        if hasattr(self, "thumbnail_font_bold_checkbox"):
-            self.thumbnail_font_bold_checkbox.setChecked(bool(self.config.get("thumbnail_font_bold", True)))
-        if hasattr(self, "thumbnail_text_bg_combo"):
-            bg_mode = str(self.config.get("thumbnail_text_bg", "auto")).strip().lower()
-            for i in range(self.thumbnail_text_bg_combo.count()):
-                if self.thumbnail_text_bg_combo.itemData(i) == bg_mode:
-                    self.thumbnail_text_bg_combo.setCurrentIndex(i)
-                    break
-        if hasattr(self, "thumbnail_font_combo"):
-            self.refresh_thumbnail_font_options()
-            saved_font = str(self.config.get("thumbnail_font_file", "")).strip()
-            if saved_font:
-                for i in range(self.thumbnail_font_combo.count()):
-                    if str(self.thumbnail_font_combo.itemData(i) or "").strip() == saved_font:
-                        self.thumbnail_font_combo.setCurrentIndex(i)
-                        break
         
 
         # Qt 이벤트 루프가 텍스트를 완전히 반영한 후 상태 업데이트
@@ -10368,37 +10401,6 @@ class NaverBlogGUI(QMainWindow):
         self.update_status_display()
         self._update_settings_summary()
         self._show_auto_close_message("✅ AI 설정이 저장되었습니다", QMessageBox.Icon.Information)
-
-    def save_thumbnail_style_settings(self):
-        """썸네일 제목 스타일 설정 저장"""
-        font_size = int(self.thumbnail_font_size_spin.value()) if hasattr(self, "thumbnail_font_size_spin") else 0
-        font_bold = bool(self.thumbnail_font_bold_checkbox.isChecked()) if hasattr(self, "thumbnail_font_bold_checkbox") else True
-        bg_mode = "auto"
-        if hasattr(self, "thumbnail_text_bg_combo"):
-            bg_mode = str(self.thumbnail_text_bg_combo.currentData() or "auto").strip().lower()
-        if bg_mode not in ("none", "auto", "white", "black", "yellow"):
-            bg_mode = "auto"
-        font_file = str(self.thumbnail_font_combo.currentData() or "").strip() if hasattr(self, "thumbnail_font_combo") else ""
-
-        self.config["thumbnail_font_size"] = font_size
-        self.config["thumbnail_font_bold"] = font_bold
-        self.config["thumbnail_text_bg"] = bg_mode
-        self.config["thumbnail_font_file"] = font_file
-
-        bg_label_map = {
-            "none": "없음",
-            "auto": "자동",
-            "white": "흰색",
-            "black": "검정",
-            "yellow": "노랑",
-        }
-        size_text = "자동" if font_size <= 0 else str(font_size)
-        font_text = os.path.basename(font_file) if font_file else "자동 선택"
-        self._update_settings_status(
-            f"🖼️ 썸네일 스타일 저장: 크기={size_text}, 볼드={'ON' if font_bold else 'OFF'}, 배경={bg_label_map.get(bg_mode, '자동')}, 폰트={font_text}"
-        )
-        self.save_config_file()
-        self._show_auto_close_message("✅ 썸네일 제목 스타일이 저장되었습니다", QMessageBox.Icon.Information)
 
     def on_posting_method_changed(self):
         """포스팅 방법 라디오 변경 시 상태 반영"""
