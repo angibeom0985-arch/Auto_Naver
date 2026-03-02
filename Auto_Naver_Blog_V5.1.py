@@ -6580,9 +6580,9 @@ class ThumbnailManagerDialog(QDialog):
         self.preview_timer.setInterval(120)
         self.preview_timer.timeout.connect(self.render_preview)
 
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(14)
+        root.setSpacing(10)
 
         left_panel = QWidget()
         left_panel.setMinimumWidth(430)
@@ -6591,13 +6591,16 @@ class ThumbnailManagerDialog(QDialog):
         left_layout.setSpacing(10)
 
         info = QLabel("썸네일 배경 JPG에 예시 문구를 써보며 폰트/스타일을 미리 조정할 수 있습니다.")
-        info.setWordWrap(True)
+        info.setWordWrap(False)
         info.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
-        left_layout.addWidget(info)
+        root.addWidget(info)
 
         self.source_label = QLabel("배경 이미지: 확인 중...")
         self.source_label.setStyleSheet(f"color: {NAVER_TEXT}; font-weight: bold;")
-        left_layout.addWidget(self.source_label)
+        root.addWidget(self.source_label)
+
+        content_row = QHBoxLayout()
+        content_row.setSpacing(14)
 
         form = QGridLayout()
         form.setHorizontalSpacing(10)
@@ -6680,8 +6683,9 @@ class ThumbnailManagerDialog(QDialog):
         """)
         right_layout.addWidget(self.preview_image_label, 1)
 
-        root.addWidget(left_panel, 0)
-        root.addWidget(right_panel, 1)
+        content_row.addWidget(left_panel, 0)
+        content_row.addWidget(right_panel, 1)
+        root.addLayout(content_row)
 
         self._load_initial_values()
         self.refresh_fonts()
