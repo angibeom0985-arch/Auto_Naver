@@ -10670,7 +10670,7 @@ class NaverBlogGUI(QMainWindow):
             while self.is_running and not self.stop_requested:
                 try:
                     if not is_first_run_flag:
-                        print("🔄 [DEBUG] 다음 포스팅 시작")
+                        pass
 
                     slot_idx, cycle_naver_id, cycle_naver_pw = registered_accounts[account_cycle_pos]
                     self.config["active_naver_account_slot"] = slot_idx
@@ -10741,7 +10741,7 @@ class NaverBlogGUI(QMainWindow):
                     
                     # 자동화 실행
                     if not is_first_run_flag:
-                        print(f"🔄 [DEBUG] automation.run(is_first_run={is_first_run_flag}) 호출")
+                        pass
                     
                     result = self.automation.run(is_first_run=is_first_run_flag)
                     
