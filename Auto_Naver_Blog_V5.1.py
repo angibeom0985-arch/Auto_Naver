@@ -6728,7 +6728,7 @@ class ThumbnailManagerDialog(QDialog):
 
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: {NAVER_BG};
+                background-color: #FFFFFF;
             }}
             QLabel {{
                 color: {NAVER_TEXT};
@@ -6770,6 +6770,7 @@ class ThumbnailManagerDialog(QDialog):
 
         left_panel = QWidget()
         left_panel.setMinimumWidth(500)
+        left_panel.setStyleSheet("background-color: #FFFFFF;")
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
@@ -7020,6 +7021,7 @@ class ThumbnailManagerDialog(QDialog):
         left_layout.addLayout(buttons)
 
         right_panel = QWidget()
+        right_panel.setStyleSheet("background-color: #FFFFFF;")
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(12)
@@ -7045,6 +7047,10 @@ class ThumbnailManagerDialog(QDialog):
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setStyleSheet("""
+            QScrollArea { background-color: #FFFFFF; border: none; }
+            QScrollArea > QWidget > QWidget { background-color: #FFFFFF; }
+        """)
         left_scroll.setWidget(left_panel)
 
         content_row.addWidget(left_scroll, 1)
