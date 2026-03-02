@@ -11442,6 +11442,19 @@ if __name__ == "__main__":
                 desc_label.setFont(QFont("Malgun Gothic", 11))
                 desc_label.setWordWrap(True)
                 layout.addWidget(desc_label)
+
+                # 해결 방법 안내
+                solution_label = QLabel(
+                    "🛠️ 해결 방법\n"
+                    "1) 프로그램을 완전히 종료 후 다시 실행하세요.\n"
+                    "2) 크롬/크롬드라이버 관련 창이 남아 있으면 모두 닫고 재시도하세요.\n"
+                    "3) 네이버/웹사이트 로그인 상태와 인터넷 연결을 확인하세요.\n"
+                    "4) 동일 오류가 반복되면 아래 '데이비 전달용 메시지'를 복사해 전달하세요."
+                )
+                solution_label.setFont(QFont("Malgun Gothic", 10))
+                solution_label.setWordWrap(True)
+                solution_label.setStyleSheet("color: #374151; background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px;")
+                layout.addWidget(solution_label)
                 
                 # 제작자 전달용 내용
                 report_content = (
@@ -11481,17 +11494,42 @@ if __name__ == "__main__":
                     _deduped.append(_line)
                     _prev = _norm
                 report_content = "\n".join(_deduped)
+
+                david_message = (
+                    "[오류 전달]\n"
+                    f"- 발생 시간: {error_details['timestamp']}\n"
+                    f"- 오류 종류: {error_details['type']}\n"
+                    f"- 오류 메시지: {error_details['message']}\n"
+                    f"- OS: {error_details['os']}\n"
+                    "동일 오류가 반복되어 확인 부탁드립니다."
+                )
+
+                david_label = QLabel("📨 데이비에게 전달할 메시지")
+                david_label.setFont(QFont("Malgun Gothic", 11, QFont.Weight.Bold))
+                david_label.setStyleSheet("color: #1f2937;")
+                layout.addWidget(david_label)
+
+                david_text = QTextEdit()
+                david_text.setPlainText(david_message)
+                david_text.setReadOnly(True)
+                david_text.setMinimumHeight(110)
+                layout.addWidget(david_text)
                 
                 report_text = QTextEdit()
                 report_text.setPlainText(report_content)
                 report_text.setReadOnly(True)
-                report_text.setMinimumHeight(250)
+                report_text.setMinimumHeight(200)
                 layout.addWidget(report_text)
                 
                 # 버튼 영역
                 button_layout = QHBoxLayout()
                 button_layout.setSpacing(10)
                 
+                david_copy_btn = QPushButton("📨 전달 메시지 복사")
+                david_copy_btn.clicked.connect(lambda: pyperclip.copy(david_message))
+                david_copy_btn.clicked.connect(lambda: david_copy_btn.setText("✅ 전달 메시지 복사 완료!"))
+                button_layout.addWidget(david_copy_btn)
+
                 copy_btn = QPushButton("📋 오류 내용 복사")
                 copy_btn.clicked.connect(lambda: pyperclip.copy(report_content))
                 copy_btn.clicked.connect(lambda: copy_btn.setText("✅ 복사 완료!"))
