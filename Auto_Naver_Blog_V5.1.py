@@ -404,7 +404,7 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
 
 def _render_thumbnail_image(source_image_path, output_path, title, config, font_candidates):
     """썸네일 배경 + 제목 텍스트 렌더링 공통 함수"""
-    from PIL import Image, ImageDraw, ImageFont, ImageStat
+    from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageFilter
 
     try:
         cfg_font_size = int((config or {}).get("thumbnail_font_size", 0))
@@ -417,6 +417,36 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     cfg_border = str((config or {}).get("thumbnail_text_border_color", "auto")).strip().lower()
     if cfg_border not in ("none", "auto", "white", "black", "yellow", "red", "blue", "green"):
         cfg_border = "auto"
+    try:
+        cfg_border_width = int((config or {}).get("thumbnail_text_border_width", 2))
+    except Exception:
+        cfg_border_width = 2
+    cfg_border_width = max(0, min(20, cfg_border_width))
+
+    cfg_shadow_enabled = bool((config or {}).get("thumbnail_text_shadow_enabled", False))
+    cfg_shadow_color = str((config or {}).get("thumbnail_text_shadow_color", "auto")).strip().lower()
+    if cfg_shadow_color not in ("auto", "black", "white", "yellow", "red", "blue", "green"):
+        cfg_shadow_color = "auto"
+    try:
+        cfg_shadow_angle = int((config or {}).get("thumbnail_text_shadow_angle", 315))
+    except Exception:
+        cfg_shadow_angle = 315
+    cfg_shadow_angle = cfg_shadow_angle % 360
+    try:
+        cfg_shadow_opacity = int((config or {}).get("thumbnail_text_shadow_opacity", 40))
+    except Exception:
+        cfg_shadow_opacity = 40
+    cfg_shadow_opacity = max(0, min(100, cfg_shadow_opacity))
+    try:
+        cfg_shadow_distance = int((config or {}).get("thumbnail_text_shadow_distance", 10))
+    except Exception:
+        cfg_shadow_distance = 10
+    cfg_shadow_distance = max(0, min(120, cfg_shadow_distance))
+    try:
+        cfg_shadow_blur = int((config or {}).get("thumbnail_text_shadow_blur", 0))
+    except Exception:
+        cfg_shadow_blur = 0
+    cfg_shadow_blur = max(0, min(50, cfg_shadow_blur))
 
     img = Image.open(source_image_path).resize((300, 300), Image.Resampling.LANCZOS)
     draw = ImageDraw.Draw(img)
@@ -523,10 +553,10 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         "blue": (30, 136, 229),
         "green": (67, 160, 71),
     }
-    if cfg_border == "none":
+    if cfg_border == "none" or cfg_border_width <= 0:
         stroke_width = 0
     else:
-        stroke_width = 2
+        stroke_width = cfg_border_width
         if cfg_border != "auto":
             stroke_fill = border_color_map.get(cfg_border, stroke_fill)
 
@@ -555,6 +585,46 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         )
         overlay_draw.rounded_rectangle(box, radius=12, fill=bg_fill)
         img = Image.alpha_composite(img, overlay)
+        draw = ImageDraw.Draw(img)
+
+    # 텍스트 그림자(옵션)
+    if cfg_shadow_enabled and (cfg_shadow_opacity > 0) and (cfg_shadow_distance > 0 or cfg_shadow_blur > 0):
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+
+        shadow_color_map = {
+            "black": (20, 20, 20),
+            "white": (245, 245, 245),
+            "yellow": (255, 235, 59),
+            "red": (229, 57, 53),
+            "blue": (30, 136, 229),
+            "green": (67, 160, 71),
+        }
+        if cfg_shadow_color == "auto":
+            shadow_rgb = (20, 20, 20) if mean_luma >= 150 else (245, 245, 245)
+        else:
+            shadow_rgb = shadow_color_map.get(cfg_shadow_color, (20, 20, 20))
+
+        alpha = int((cfg_shadow_opacity / 100.0) * 255)
+        import math
+        rad = math.radians(cfg_shadow_angle)
+        dx = int(round(math.cos(rad) * cfg_shadow_distance))
+        dy = int(round(-math.sin(rad) * cfg_shadow_distance))
+
+        shadow_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow_layer)
+        shadow_draw.multiline_text(
+            (x + dx, y + dy),
+            title_text,
+            fill=(shadow_rgb[0], shadow_rgb[1], shadow_rgb[2], alpha),
+            font=font,
+            align="center",
+            spacing=line_spacing,
+            stroke_width=0,
+        )
+        if cfg_shadow_blur > 0:
+            shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=cfg_shadow_blur))
+        img = Image.alpha_composite(img, shadow_layer)
         draw = ImageDraw.Draw(img)
 
     draw.multiline_text(
@@ -6684,14 +6754,58 @@ class ThumbnailManagerDialog(QDialog):
         self.text_border_combo.addItem("초록", "green")
         form.addWidget(self.text_border_combo, 3, 1, 1, 2)
 
-        form.addWidget(QLabel("폰트 선택"), 4, 0)
+        form.addWidget(QLabel("테두리 두께"), 4, 0)
+        self.text_border_width_spin = QSpinBox()
+        self.text_border_width_spin.setRange(0, 20)
+        self.text_border_width_spin.setSuffix(" px")
+        form.addWidget(self.text_border_width_spin, 4, 1)
+
+        self.shadow_enabled_checkbox = QCheckBox("그림자 사용")
+        form.addWidget(self.shadow_enabled_checkbox, 4, 2)
+
+        form.addWidget(QLabel("그림자색"), 5, 0)
+        self.text_shadow_color_combo = QComboBox()
+        self.text_shadow_color_combo.addItem("자동", "auto")
+        self.text_shadow_color_combo.addItem("검정", "black")
+        self.text_shadow_color_combo.addItem("흰색", "white")
+        self.text_shadow_color_combo.addItem("노랑", "yellow")
+        self.text_shadow_color_combo.addItem("빨강", "red")
+        self.text_shadow_color_combo.addItem("파랑", "blue")
+        self.text_shadow_color_combo.addItem("초록", "green")
+        form.addWidget(self.text_shadow_color_combo, 5, 1, 1, 2)
+
+        form.addWidget(QLabel("그림자 각도"), 6, 0)
+        self.text_shadow_angle_spin = QSpinBox()
+        self.text_shadow_angle_spin.setRange(0, 359)
+        self.text_shadow_angle_spin.setSuffix(" °")
+        form.addWidget(self.text_shadow_angle_spin, 6, 1)
+
+        form.addWidget(QLabel("그림자 불투명도"), 7, 0)
+        self.text_shadow_opacity_spin = QSpinBox()
+        self.text_shadow_opacity_spin.setRange(0, 100)
+        self.text_shadow_opacity_spin.setSuffix(" %")
+        form.addWidget(self.text_shadow_opacity_spin, 7, 1)
+
+        form.addWidget(QLabel("그림자 거리"), 8, 0)
+        self.text_shadow_distance_spin = QSpinBox()
+        self.text_shadow_distance_spin.setRange(0, 120)
+        self.text_shadow_distance_spin.setSuffix(" px")
+        form.addWidget(self.text_shadow_distance_spin, 8, 1)
+
+        form.addWidget(QLabel("그림자 흐림"), 9, 0)
+        self.text_shadow_blur_spin = QSpinBox()
+        self.text_shadow_blur_spin.setRange(0, 50)
+        self.text_shadow_blur_spin.setSuffix(" px")
+        form.addWidget(self.text_shadow_blur_spin, 9, 1)
+
+        form.addWidget(QLabel("폰트 선택"), 10, 0)
         self.font_combo = QComboBox()
-        form.addWidget(self.font_combo, 4, 1)
+        form.addWidget(self.font_combo, 10, 1)
 
         refresh_btn = QPushButton("폰트 새로고침")
         refresh_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         refresh_btn.clicked.connect(self.refresh_fonts)
-        form.addWidget(refresh_btn, 4, 2)
+        form.addWidget(refresh_btn, 10, 2)
 
         fav_layout = QHBoxLayout()
         fav_layout.setSpacing(8)
@@ -6705,7 +6819,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
         fav_layout.addWidget(self.font_fav_remove_btn)
         fav_layout.addStretch()
-        form.addLayout(fav_layout, 5, 0, 1, 3)
+        form.addLayout(fav_layout, 11, 0, 1, 3)
 
         left_layout.addLayout(form)
         left_layout.addStretch()
@@ -6767,7 +6881,26 @@ class ThumbnailManagerDialog(QDialog):
         self.font_bold_checkbox.stateChanged.connect(self._schedule_preview_update)
         self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.text_border_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.text_border_width_spin.valueChanged.connect(self._schedule_preview_update)
+        self.shadow_enabled_checkbox.stateChanged.connect(self._sync_shadow_controls)
+        self.shadow_enabled_checkbox.stateChanged.connect(self._schedule_preview_update)
+        self.text_shadow_color_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.text_shadow_angle_spin.valueChanged.connect(self._schedule_preview_update)
+        self.text_shadow_opacity_spin.valueChanged.connect(self._schedule_preview_update)
+        self.text_shadow_distance_spin.valueChanged.connect(self._schedule_preview_update)
+        self.text_shadow_blur_spin.valueChanged.connect(self._schedule_preview_update)
         self.font_combo.currentIndexChanged.connect(self._schedule_preview_update)
+
+    def _sync_shadow_controls(self, *_):
+        enabled = bool(self.shadow_enabled_checkbox.isChecked())
+        for w in (
+            self.text_shadow_color_combo,
+            self.text_shadow_angle_spin,
+            self.text_shadow_opacity_spin,
+            self.text_shadow_distance_spin,
+            self.text_shadow_blur_spin,
+        ):
+            w.setEnabled(enabled)
 
     def _schedule_preview_update(self):
         self.preview_timer.start()
@@ -6789,6 +6922,33 @@ class ThumbnailManagerDialog(QDialog):
             if self.text_border_combo.itemData(i) == border_mode:
                 self.text_border_combo.setCurrentIndex(i)
                 break
+        try:
+            self.text_border_width_spin.setValue(int(cfg.get("thumbnail_text_border_width", 2) or 2))
+        except Exception:
+            self.text_border_width_spin.setValue(2)
+        self.shadow_enabled_checkbox.setChecked(bool(cfg.get("thumbnail_text_shadow_enabled", False)))
+        shadow_color = str(cfg.get("thumbnail_text_shadow_color", "auto")).strip().lower()
+        for i in range(self.text_shadow_color_combo.count()):
+            if self.text_shadow_color_combo.itemData(i) == shadow_color:
+                self.text_shadow_color_combo.setCurrentIndex(i)
+                break
+        try:
+            self.text_shadow_angle_spin.setValue(int(cfg.get("thumbnail_text_shadow_angle", 315) or 315) % 360)
+        except Exception:
+            self.text_shadow_angle_spin.setValue(315)
+        try:
+            self.text_shadow_opacity_spin.setValue(int(cfg.get("thumbnail_text_shadow_opacity", 40) or 40))
+        except Exception:
+            self.text_shadow_opacity_spin.setValue(40)
+        try:
+            self.text_shadow_distance_spin.setValue(int(cfg.get("thumbnail_text_shadow_distance", 10) or 10))
+        except Exception:
+            self.text_shadow_distance_spin.setValue(10)
+        try:
+            self.text_shadow_blur_spin.setValue(int(cfg.get("thumbnail_text_shadow_blur", 0) or 0))
+        except Exception:
+            self.text_shadow_blur_spin.setValue(0)
+        self._sync_shadow_controls()
         src = self._pick_source_image()
         if src:
             self.source_label.setText(f"배경 이미지: {os.path.basename(src)}")
@@ -6816,6 +6976,13 @@ class ThumbnailManagerDialog(QDialog):
         base["thumbnail_font_bold"] = bool(self.font_bold_checkbox.isChecked())
         base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
         base["thumbnail_text_border_color"] = str(self.text_border_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_text_border_width"] = int(self.text_border_width_spin.value())
+        base["thumbnail_text_shadow_enabled"] = bool(self.shadow_enabled_checkbox.isChecked())
+        base["thumbnail_text_shadow_color"] = str(self.text_shadow_color_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_text_shadow_angle"] = int(self.text_shadow_angle_spin.value())
+        base["thumbnail_text_shadow_opacity"] = int(self.text_shadow_opacity_spin.value())
+        base["thumbnail_text_shadow_distance"] = int(self.text_shadow_distance_spin.value())
+        base["thumbnail_text_shadow_blur"] = int(self.text_shadow_blur_spin.value())
         base["thumbnail_font_file"] = str(self.font_combo.currentData() or "").strip()
         return base
 
@@ -6924,6 +7091,13 @@ class ThumbnailManagerDialog(QDialog):
         self.parent.config["thumbnail_font_bold"] = bool(cfg.get("thumbnail_font_bold", True))
         self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
         self.parent.config["thumbnail_text_border_color"] = str(cfg.get("thumbnail_text_border_color", "auto"))
+        self.parent.config["thumbnail_text_border_width"] = int(cfg.get("thumbnail_text_border_width", 2))
+        self.parent.config["thumbnail_text_shadow_enabled"] = bool(cfg.get("thumbnail_text_shadow_enabled", False))
+        self.parent.config["thumbnail_text_shadow_color"] = str(cfg.get("thumbnail_text_shadow_color", "auto"))
+        self.parent.config["thumbnail_text_shadow_angle"] = int(cfg.get("thumbnail_text_shadow_angle", 315))
+        self.parent.config["thumbnail_text_shadow_opacity"] = int(cfg.get("thumbnail_text_shadow_opacity", 40))
+        self.parent.config["thumbnail_text_shadow_distance"] = int(cfg.get("thumbnail_text_shadow_distance", 10))
+        self.parent.config["thumbnail_text_shadow_blur"] = int(cfg.get("thumbnail_text_shadow_blur", 0))
         self.parent.config["thumbnail_font_file"] = str(cfg.get("thumbnail_font_file", ""))
         self.parent.save_config_file()
         self.parent._update_settings_status("✅ 썸네일 관리 설정이 저장되었습니다")
