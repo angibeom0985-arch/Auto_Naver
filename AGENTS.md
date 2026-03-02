@@ -21,14 +21,14 @@
 - 머신 ID 형식은 `NAVER-` + 소문자 32자리 hex로 고정한다.
 - 머신 ID 결정 우선순위는 다음과 같이 유지한다.
   1. 이미 발급된 라이선스 데이터의 유효한 `registered_machine_id`
-  2. Windows 레지스트리 값 `HKCU\\Software\\Auto_Naver\\MachineId`
+  2. Windows 레지스트리 값 `HKCU\\Software\\<복붙한_폴더명>\\MachineId` (레거시 `Auto_Naver` 경로도 읽기 호환)
   3. 결정적 하드웨어 지문 해시(MachineGuid / SMBIOS UUID / 시스템 드라이브 시리얼 / 안정적 MAC)
 - 머신 ID를 텍스트 파일로 저장하지 않는다. 저장이 필요하면 레지스트리만 사용하며, `machine_id.txt`는 항상 금지한다.
 - 앱 실행 시마다(`.exe` 포함) 아래 경로를 조용히(무음) 재귀 검사해 머신 ID 텍스트 잔여물을 삭제한다.
   - exe 기준 폴더 및 모든 하위 폴더
   - 프로젝트 `setting` 트리
   - 런타임 상태 저장 경로 및 하위 폴더
-  - Windows `APPDATA/LOCALAPPDATA/PROGRAMDATA`의 `Auto_Naver` 트리
+  - Windows `APPDATA/LOCALAPPDATA/PROGRAMDATA`의 `<복붙한_폴더명>` 트리 (레거시 `Auto_Naver` 트리도 함께 검사)
 - 정리 동작은 무음이어야 한다. 팝업, 콘솔 로그, 사용자 메시지를 출력하지 않는다.
 - 라이선스 저장 구조에서는 기간 검증 필드와 구매자 매핑 데이터를 유지한다. 편의상 만료/유효성 검증을 제거하지 않는다.
 - 라이선스 코드 리팩터링 시 아래 동작 호환성을 우선 보장한다.

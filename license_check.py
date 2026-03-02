@@ -25,6 +25,9 @@ class LicenseManager:
 
     def __init__(self):
         self.base_dir = self._get_base_dir()
+        self.app_scope_name = self._get_app_scope_name()
+        self.registry_path = fr"Software\{self.app_scope_name}"
+        self.legacy_registry_path = r"Software\Auto_Naver"
         self.state_dir = self._get_state_dir()
         self.license_file = os.path.join(self.state_dir, "license.json")
         self.license_data = self.load_license()
@@ -38,6 +41,13 @@ class LicenseManager:
             return os.path.dirname(sys.executable)
         return os.path.dirname(os.path.abspath(__file__))
 
+    def _get_app_scope_name(self):
+        """복붙/배포된 실제 폴더명을 기반으로 앱 스코프명 생성"""
+        folder_name = os.path.basename(os.path.abspath(self.base_dir)).strip()
+        cleaned = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in folder_name)
+        cleaned = cleaned.strip("._")
+        return cleaned if cleaned else "Auto_Naver"
+
     def _get_state_dir(self):
         """버전/빌드와 무관하게 유지되는 상태 저장 경로"""
         if platform.system() == "Windows":
@@ -50,7 +60,7 @@ class LicenseManager:
             for root in candidates:
                 if root:
                     try:
-                        path = os.path.join(root, "Auto_Naver")
+                        path = os.path.join(root, self.app_scope_name)
                         os.makedirs(path, exist_ok=True)
                         return path
                     except Exception:
@@ -159,16 +169,23 @@ class LicenseManager:
         try:
             import winreg
 
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Auto_Naver",
-                0,
-                winreg.KEY_READ,
-            ) as key:
-                value, _ = winreg.QueryValueEx(key, "MachineId")
-                return self._normalize_machine_id(value)
+            for reg_path in (self.registry_path, self.legacy_registry_path):
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_CURRENT_USER,
+                        reg_path,
+                        0,
+                        winreg.KEY_READ,
+                    ) as key:
+                        value, _ = winreg.QueryValueEx(key, "MachineId")
+                        normalized = self._normalize_machine_id(value)
+                        if normalized:
+                            return normalized
+                except Exception:
+                    continue
         except Exception:
-            return ""
+            pass
+        return ""
 
     def _persist_machine_id_to_registry(self, machine_id):
         """Windows 레지스트리(HKCU)에 머신 ID 저장"""
@@ -177,7 +194,7 @@ class LicenseManager:
         try:
             import winreg
 
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Auto_Naver") as key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.registry_path) as key:
                 winreg.SetValueEx(key, "MachineId", 0, winreg.REG_SZ, machine_id)
         except Exception:
             pass
@@ -229,6 +246,7 @@ class LicenseManager:
         if platform.system() == "Windows":
             programdata = os.getenv("PROGRAMDATA", "").strip()
             if programdata:
+                paths.append(os.path.join(programdata, self.app_scope_name, "machine_id.txt"))
                 paths.append(os.path.join(programdata, "Auto_Naver", "machine_id.txt"))
         # 중복 제거(순서 유지)
         deduped = []
@@ -254,6 +272,7 @@ class LicenseManager:
             for env_name in ("PROGRAMDATA", "LOCALAPPDATA", "APPDATA"):
                 root = os.getenv(env_name, "").strip()
                 if root:
+                    roots.append(os.path.join(root, self.app_scope_name))
                     roots.append(os.path.join(root, "Auto_Naver"))
 
         deduped = []
