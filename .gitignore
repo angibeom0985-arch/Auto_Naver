@@ -5,6 +5,10 @@ setting/etc/chrome_profile/
 dist/setting/etc/chrome_profile/
 setting/etc/chrome_profile_temp_*/
 setting/accounts/
+setting/license.json
+setting/machine_id.txt
+dist/setting/license.json
+dist/setting/machine_id.txt
 
 # Common cache/build artifacts
 __pycache__/

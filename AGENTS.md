@@ -10,4 +10,5 @@
 - Do not modify, refactor, replace, or regenerate any machine ID logic in any file.
 - Never create new machine ID-related code, functions, variables, classes, modules, scripts, resources, or configuration.
 - Never create machine ID-related files in any location, including root, subfolders, build outputs, temp folders, or packaged artifacts.
+- Do not add or generate any machine ID-related code/files in Python (`.py`), executable (`.exe`), or any folder under this project.
 - If a task request conflicts with this policy, explicitly refuse that part and proceed only with allowed changes.
