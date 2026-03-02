@@ -413,6 +413,9 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     cfg_font_size = max(0, min(72, cfg_font_size))
     cfg_font_italic = bool((config or {}).get("thumbnail_font_italic", False))
     cfg_font_underline = bool((config or {}).get("thumbnail_font_underline", False))
+    cfg_text_color = str((config or {}).get("thumbnail_text_color", "auto")).strip().lower()
+    if cfg_text_color not in ("auto", "white", "black", "yellow", "red", "blue", "green"):
+        cfg_text_color = "auto"
     cfg_text_bg = str((config or {}).get("thumbnail_text_bg", "auto")).strip().lower()
     if cfg_text_bg not in ("none", "auto", "white", "black", "yellow"):
         cfg_text_bg = "auto"
@@ -541,13 +544,13 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         mean_luma = 127
 
     if mean_luma >= 150:
-        text_fill = (20, 20, 20)
-        stroke_fill = (245, 245, 245)
+        auto_text_fill = (20, 20, 20)
+        auto_stroke_fill = (245, 245, 245)
     else:
-        text_fill = (245, 245, 245)
-        stroke_fill = (20, 20, 20)
+        auto_text_fill = (245, 245, 245)
+        auto_stroke_fill = (20, 20, 20)
 
-    border_color_map = {
+    text_color_map = {
         "white": (245, 245, 245),
         "black": (20, 20, 20),
         "yellow": (255, 235, 59),
@@ -555,6 +558,16 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
         "blue": (30, 136, 229),
         "green": (67, 160, 71),
     }
+    if cfg_text_color == "auto":
+        text_fill = auto_text_fill
+        stroke_fill = auto_stroke_fill
+    else:
+        text_fill = text_color_map.get(cfg_text_color, auto_text_fill)
+        # 수동 글자색 선택 시 외곽선 자동 대비 유지
+        brightness = (text_fill[0] * 0.299) + (text_fill[1] * 0.587) + (text_fill[2] * 0.114)
+        stroke_fill = (20, 20, 20) if brightness >= 140 else (245, 245, 245)
+
+    border_color_map = dict(text_color_map)
     if cfg_border == "none" or cfg_border_width <= 0:
         stroke_width = 0
     else:
@@ -6879,7 +6892,19 @@ class ThumbnailManagerDialog(QDialog):
         self.text_bg_combo.setToolTip("텍스트 뒤 배경 박스 색상을 설정합니다.")
         form.addWidget(self.text_bg_combo, 3, 1, 1, 2)
 
-        form.addWidget(QLabel("테두리색"), 4, 0)
+        form.addWidget(QLabel("글자색"), 4, 0)
+        self.text_color_combo = QComboBox()
+        self.text_color_combo.addItem("자동", "auto")
+        self.text_color_combo.addItem("흰색", "white")
+        self.text_color_combo.addItem("검정", "black")
+        self.text_color_combo.addItem("노랑", "yellow")
+        self.text_color_combo.addItem("빨강", "red")
+        self.text_color_combo.addItem("파랑", "blue")
+        self.text_color_combo.addItem("초록", "green")
+        self.text_color_combo.setToolTip("글자 자체 색상을 설정합니다.")
+        form.addWidget(self.text_color_combo, 4, 1, 1, 2)
+
+        form.addWidget(QLabel("테두리색"), 5, 0)
         self.text_border_combo = QComboBox()
         self.text_border_combo.addItem("없음", "none")
         self.text_border_combo.addItem("자동", "auto")
@@ -6890,20 +6915,20 @@ class ThumbnailManagerDialog(QDialog):
         self.text_border_combo.addItem("파랑", "blue")
         self.text_border_combo.addItem("초록", "green")
         self.text_border_combo.setToolTip("글자 외곽선의 색상을 설정합니다.")
-        form.addWidget(self.text_border_combo, 4, 1, 1, 2)
+        form.addWidget(self.text_border_combo, 5, 1, 1, 2)
 
-        form.addWidget(QLabel("테두리 두께"), 5, 0)
+        form.addWidget(QLabel("테두리 두께"), 6, 0)
         self.text_border_width_spin = QSpinBox()
         self.text_border_width_spin.setRange(0, 20)
         self.text_border_width_spin.setSuffix(" px")
         self.text_border_width_spin.setToolTip("외곽선 두께를 조절합니다.")
-        form.addWidget(self.text_border_width_spin, 5, 1)
+        form.addWidget(self.text_border_width_spin, 6, 1)
 
         self.shadow_enabled_checkbox = QCheckBox("그림자 사용")
         self.shadow_enabled_checkbox.setToolTip("텍스트 그림자를 켜거나 끕니다.")
-        form.addWidget(self.shadow_enabled_checkbox, 5, 2)
+        form.addWidget(self.shadow_enabled_checkbox, 6, 2)
 
-        form.addWidget(QLabel("그림자색"), 6, 0)
+        form.addWidget(QLabel("그림자색"), 7, 0)
         self.text_shadow_color_combo = QComboBox()
         self.text_shadow_color_combo.addItem("자동", "auto")
         self.text_shadow_color_combo.addItem("검정", "black")
@@ -6913,35 +6938,35 @@ class ThumbnailManagerDialog(QDialog):
         self.text_shadow_color_combo.addItem("파랑", "blue")
         self.text_shadow_color_combo.addItem("초록", "green")
         self.text_shadow_color_combo.setToolTip("그림자 색상을 설정합니다.")
-        form.addWidget(self.text_shadow_color_combo, 6, 1, 1, 2)
+        form.addWidget(self.text_shadow_color_combo, 7, 1, 1, 2)
 
-        form.addWidget(QLabel("그림자 각도"), 7, 0)
+        form.addWidget(QLabel("그림자 각도"), 8, 0)
         self.text_shadow_angle_spin = QSpinBox()
         self.text_shadow_angle_spin.setRange(0, 359)
         self.text_shadow_angle_spin.setSuffix(" °")
         self.text_shadow_angle_spin.setToolTip("그림자가 드리워지는 방향(각도)입니다.")
-        form.addWidget(self.text_shadow_angle_spin, 7, 1)
+        form.addWidget(self.text_shadow_angle_spin, 8, 1)
 
-        form.addWidget(QLabel("그림자 불투명도"), 8, 0)
+        form.addWidget(QLabel("그림자 불투명도"), 9, 0)
         self.text_shadow_opacity_spin = QSpinBox()
         self.text_shadow_opacity_spin.setRange(0, 100)
         self.text_shadow_opacity_spin.setSuffix(" %")
         self.text_shadow_opacity_spin.setToolTip("그림자의 진하기를 설정합니다.")
-        form.addWidget(self.text_shadow_opacity_spin, 8, 1)
+        form.addWidget(self.text_shadow_opacity_spin, 9, 1)
 
-        form.addWidget(QLabel("그림자 거리"), 9, 0)
+        form.addWidget(QLabel("그림자 거리"), 10, 0)
         self.text_shadow_distance_spin = QSpinBox()
         self.text_shadow_distance_spin.setRange(0, 120)
         self.text_shadow_distance_spin.setSuffix(" px")
         self.text_shadow_distance_spin.setToolTip("텍스트와 그림자 간 거리를 설정합니다.")
-        form.addWidget(self.text_shadow_distance_spin, 9, 1)
+        form.addWidget(self.text_shadow_distance_spin, 10, 1)
 
-        form.addWidget(QLabel("그림자 흐림"), 10, 0)
+        form.addWidget(QLabel("그림자 흐림"), 11, 0)
         self.text_shadow_blur_spin = QSpinBox()
         self.text_shadow_blur_spin.setRange(0, 50)
         self.text_shadow_blur_spin.setSuffix(" px")
         self.text_shadow_blur_spin.setToolTip("그림자 퍼짐(블러) 강도를 설정합니다.")
-        form.addWidget(self.text_shadow_blur_spin, 10, 1)
+        form.addWidget(self.text_shadow_blur_spin, 11, 1)
 
         fav_layout = QHBoxLayout()
         fav_layout.setSpacing(8)
@@ -6957,7 +6982,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_fav_remove_btn.clicked.connect(self.remove_current_font_from_favorites)
         fav_layout.addWidget(self.font_fav_remove_btn)
         fav_layout.addStretch()
-        form.addLayout(fav_layout, 11, 0, 1, 3)
+        form.addLayout(fav_layout, 12, 0, 1, 3)
 
         left_layout.addLayout(form)
         left_layout.addStretch(1)
@@ -7029,6 +7054,7 @@ class ThumbnailManagerDialog(QDialog):
         self.font_italic_btn.toggled.connect(self._schedule_preview_update)
         self.font_underline_btn.toggled.connect(self._schedule_preview_update)
         self.text_bg_combo.currentIndexChanged.connect(self._schedule_preview_update)
+        self.text_color_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.text_border_combo.currentIndexChanged.connect(self._schedule_preview_update)
         self.text_border_width_spin.valueChanged.connect(self._schedule_preview_update)
         self.shadow_enabled_checkbox.stateChanged.connect(self._sync_shadow_controls)
@@ -7072,6 +7098,11 @@ class ThumbnailManagerDialog(QDialog):
         for i in range(self.text_bg_combo.count()):
             if self.text_bg_combo.itemData(i) == bg_mode:
                 self.text_bg_combo.setCurrentIndex(i)
+                break
+        text_color_mode = str(cfg.get("thumbnail_text_color", "auto")).strip().lower()
+        for i in range(self.text_color_combo.count()):
+            if self.text_color_combo.itemData(i) == text_color_mode:
+                self.text_color_combo.setCurrentIndex(i)
                 break
         border_mode = str(cfg.get("thumbnail_text_border_color", "auto")).strip().lower()
         for i in range(self.text_border_combo.count()):
@@ -7133,6 +7164,7 @@ class ThumbnailManagerDialog(QDialog):
         base["thumbnail_font_italic"] = bool(self.font_italic_btn.isChecked())
         base["thumbnail_font_underline"] = bool(self.font_underline_btn.isChecked())
         base["thumbnail_text_bg"] = str(self.text_bg_combo.currentData() or "auto").strip().lower()
+        base["thumbnail_text_color"] = str(self.text_color_combo.currentData() or "auto").strip().lower()
         base["thumbnail_text_border_color"] = str(self.text_border_combo.currentData() or "auto").strip().lower()
         base["thumbnail_text_border_width"] = int(self.text_border_width_spin.value())
         base["thumbnail_text_shadow_enabled"] = bool(self.shadow_enabled_checkbox.isChecked())
@@ -7250,6 +7282,7 @@ class ThumbnailManagerDialog(QDialog):
         self.parent.config["thumbnail_font_italic"] = bool(cfg.get("thumbnail_font_italic", False))
         self.parent.config["thumbnail_font_underline"] = bool(cfg.get("thumbnail_font_underline", False))
         self.parent.config["thumbnail_text_bg"] = str(cfg.get("thumbnail_text_bg", "auto"))
+        self.parent.config["thumbnail_text_color"] = str(cfg.get("thumbnail_text_color", "auto"))
         self.parent.config["thumbnail_text_border_color"] = str(cfg.get("thumbnail_text_border_color", "auto"))
         self.parent.config["thumbnail_text_border_width"] = int(cfg.get("thumbnail_text_border_width", 2))
         self.parent.config["thumbnail_text_shadow_enabled"] = bool(cfg.get("thumbnail_text_shadow_enabled", False))
