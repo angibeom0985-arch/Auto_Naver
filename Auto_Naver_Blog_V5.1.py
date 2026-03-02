@@ -6190,6 +6190,7 @@ class NaverAccountsDialog(QDialog):
             pw_entry.setEchoMode(QLineEdit.EchoMode.Password)
             pw_entry.setPlaceholderText("비밀번호")
             pw_entry.setText(str(slots[i].get("pw", "")))
+            pw_entry.returnPressed.connect(self.save_and_close)
             row.addWidget(pw_entry, 1)
 
             toggle_btn = QPushButton("비공개")
