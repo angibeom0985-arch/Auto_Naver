@@ -29,6 +29,7 @@ class LicenseManager:
         self.license_file = os.path.join(self.state_dir, "license.json")
         self.license_data = self.load_license()
         # 배포 정책: machine_id.txt 파일은 어떤 경로에도 남기지 않음
+        # (1인1PC 제한/사용 기간 검증은 유지하면서 파일 기반 잔여물만 제거)
         self._cleanup_legacy_machine_id_files()
 
     def _get_base_dir(self):
