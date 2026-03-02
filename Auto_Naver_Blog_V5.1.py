@@ -2521,17 +2521,36 @@ class NaverBlogAutomation:
                     lines.append(title[i:i+max_chars_per_line])
                 title_text = '\n'.join(lines[:max_lines])
             
+            # 썸네일 텍스트 스타일 설정
+            try:
+                cfg_font_size = int(self.config.get("thumbnail_font_size", 0))
+            except Exception:
+                cfg_font_size = 0
+            cfg_font_size = max(0, min(72, cfg_font_size))
+            cfg_font_bold = bool(self.config.get("thumbnail_font_bold", True))
+            cfg_text_bg = str(self.config.get("thumbnail_text_bg", "auto")).strip().lower()
+            if cfg_text_bg not in ("none", "auto", "white", "black", "yellow"):
+                cfg_text_bg = "auto"
+
             # 폰트 후보: setting/image의 사용자 폰트 우선, 없으면 시스템 폰트 사용
             font_candidates = []
             for name in sorted(os.listdir(image_folder)):
                 lower = name.lower()
                 if lower.endswith(".ttf") or lower.endswith(".otf") or lower.endswith(".ttc"):
                     font_candidates.append(os.path.join(image_folder, name))
-            font_candidates.extend([
+            system_fonts = [
                 "C:/Windows/Fonts/malgun.ttf",
                 "C:/Windows/Fonts/malgunbd.ttf",
                 "C:/Windows/Fonts/NanumGothic.ttf",
-            ])
+            ]
+            if cfg_font_bold:
+                system_fonts = [
+                    "C:/Windows/Fonts/malgunbd.ttf",
+                    "C:/Windows/Fonts/malgun.ttf",
+                    "C:/Windows/Fonts/NanumGothicBold.ttf",
+                    "C:/Windows/Fonts/NanumGothic.ttf",
+                ]
+            font_candidates.extend(system_fonts)
 
             available_width = 300 - (margin * 2)
             available_height = 300 - (margin * 2)
@@ -2540,7 +2559,11 @@ class NaverBlogAutomation:
             text_width, text_height = 0, 0
 
             # 영역 안에 들어올 때까지 글자 크기 자동 조절
-            for font_size in range(40, 15, -2):
+            if cfg_font_size > 0:
+                font_sizes = list(range(cfg_font_size, 15, -1))
+            else:
+                font_sizes = list(range(40, 15, -2))
+            for font_size in font_sizes:
                 loaded_font = None
                 for font_path in font_candidates:
                     try:
@@ -2586,6 +2609,34 @@ class NaverBlogAutomation:
                 text_fill = (245, 245, 245)
                 stroke_fill = (20, 20, 20)
 
+            # 글자 배경 박스(옵션)
+            bg_fill = None
+            if cfg_text_bg == "auto":
+                bg_fill = (255, 255, 255, 190) if mean_luma < 150 else (0, 0, 0, 150)
+            elif cfg_text_bg == "white":
+                bg_fill = (255, 255, 255, 200)
+            elif cfg_text_bg == "black":
+                bg_fill = (0, 0, 0, 160)
+            elif cfg_text_bg == "yellow":
+                bg_fill = (255, 235, 59, 210)
+
+            if bg_fill is not None:
+                if img.mode != "RGBA":
+                    img = img.convert("RGBA")
+                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                overlay_draw = ImageDraw.Draw(overlay)
+                pad_x = 12
+                pad_y = 8
+                box = (
+                    max(0, x - pad_x),
+                    max(0, y - pad_y),
+                    min(300, x + text_width + pad_x),
+                    min(300, y + text_height + pad_y),
+                )
+                overlay_draw.rounded_rectangle(box, radius=12, fill=bg_fill)
+                img = Image.alpha_composite(img, overlay)
+                draw = ImageDraw.Draw(img)
+
             draw.multiline_text(
                 (x, y),
                 title_text,
@@ -2608,6 +2659,8 @@ class NaverBlogAutomation:
             filename = f"{safe_keyword}.jpg"
             filepath = os.path.join(result_folder, filename)
             
+            if img.mode != "RGB":
+                img = img.convert("RGB")
             img.save(filepath, 'JPEG', quality=95)
             self._update_status(f"✅ 썸네일 생성 완료: {filename}")
             
@@ -5973,7 +6026,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QComboBox, QGroupBox, QTabWidget, QMessageBox,
                               QListView, QButtonGroup, QDialog,
                                 QFrame, QScrollArea, QStackedWidget,
-                              QSizePolicy, QSplashScreen, QFileDialog)
+                              QSizePolicy, QSplashScreen, QFileDialog, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QEvent
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter
 
@@ -8426,9 +8479,65 @@ class NaverBlogGUI(QMainWindow):
         thumbnail_note.setStyleSheet(f"color: {NAVER_TEXT_SUB}; background-color: transparent;")
         file_card.content_layout.addWidget(thumbnail_note)
 
+        # 썸네일 텍스트 스타일 설정
+        thumbnail_style_frame = QFrame()
+        thumbnail_style_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: #FFFFFF;
+                border: 1px solid {NAVER_BORDER};
+                border-radius: 8px;
+            }}
+        """)
+        thumbnail_style_layout = QGridLayout(thumbnail_style_frame)
+        thumbnail_style_layout.setContentsMargins(10, 10, 10, 10)
+        thumbnail_style_layout.setHorizontalSpacing(10)
+        thumbnail_style_layout.setVerticalSpacing(8)
+
+        thumbnail_style_title = QLabel("🛠️ 썸네일 제목 스타일")
+        thumbnail_style_title.setFont(QFont(self.font_family, 12, QFont.Weight.Bold))
+        thumbnail_style_title.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+        thumbnail_style_layout.addWidget(thumbnail_style_title, 0, 0, 1, 3)
+
+        font_size_label = QLabel("폰트 크기")
+        self.thumbnail_font_size_spin = QSpinBox()
+        self.thumbnail_font_size_spin.setRange(0, 72)
+        self.thumbnail_font_size_spin.setSpecialValueText("자동")
+        self.thumbnail_font_size_spin.setValue(int(self.config.get("thumbnail_font_size", 0) or 0))
+        self.thumbnail_font_size_spin.setToolTip("0=자동, 16~72=고정 크기")
+        thumbnail_style_layout.addWidget(font_size_label, 1, 0)
+        thumbnail_style_layout.addWidget(self.thumbnail_font_size_spin, 1, 1)
+
+        self.thumbnail_font_bold_checkbox = QCheckBox("볼드체")
+        self.thumbnail_font_bold_checkbox.setChecked(bool(self.config.get("thumbnail_font_bold", True)))
+        thumbnail_style_layout.addWidget(self.thumbnail_font_bold_checkbox, 1, 2)
+
+        text_bg_label = QLabel("글자 배경색")
+        self.thumbnail_text_bg_combo = QComboBox()
+        self.thumbnail_text_bg_combo.addItem("없음", "none")
+        self.thumbnail_text_bg_combo.addItem("자동", "auto")
+        self.thumbnail_text_bg_combo.addItem("흰색", "white")
+        self.thumbnail_text_bg_combo.addItem("검정", "black")
+        self.thumbnail_text_bg_combo.addItem("노랑", "yellow")
+        saved_bg = str(self.config.get("thumbnail_text_bg", "auto")).strip().lower()
+        for i in range(self.thumbnail_text_bg_combo.count()):
+            if self.thumbnail_text_bg_combo.itemData(i) == saved_bg:
+                self.thumbnail_text_bg_combo.setCurrentIndex(i)
+                break
+        thumbnail_style_layout.addWidget(text_bg_label, 2, 0)
+        thumbnail_style_layout.addWidget(self.thumbnail_text_bg_combo, 2, 1, 1, 2)
+
+        thumbnail_style_save_btn = QPushButton("💾 스타일 저장")
+        thumbnail_style_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        thumbnail_style_save_btn.setMinimumHeight(34)
+        thumbnail_style_save_btn.setStyleSheet(save_btn_style)
+        thumbnail_style_save_btn.clicked.connect(self.save_thumbnail_style_settings)
+        thumbnail_style_layout.addWidget(thumbnail_style_save_btn, 3, 2)
+
+        file_card.content_layout.addWidget(thumbnail_style_frame)
+
         file_card.content_layout.addStretch()
         
-        file_card.setMinimumHeight(card_min_height)
+        file_card.setMinimumHeight(max(card_min_height, 380))
         
         layout.addWidget(file_card, 2, 1)
         
@@ -9208,6 +9317,21 @@ class NaverBlogGUI(QMainWindow):
         self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
         if hasattr(self, "use_related_posts_checkbox"):
             self.toggle_related_posts()
+
+        # 썸네일 제목 스타일
+        if hasattr(self, "thumbnail_font_size_spin"):
+            try:
+                self.thumbnail_font_size_spin.setValue(int(self.config.get("thumbnail_font_size", 0) or 0))
+            except Exception:
+                self.thumbnail_font_size_spin.setValue(0)
+        if hasattr(self, "thumbnail_font_bold_checkbox"):
+            self.thumbnail_font_bold_checkbox.setChecked(bool(self.config.get("thumbnail_font_bold", True)))
+        if hasattr(self, "thumbnail_text_bg_combo"):
+            bg_mode = str(self.config.get("thumbnail_text_bg", "auto")).strip().lower()
+            for i in range(self.thumbnail_text_bg_combo.count()):
+                if self.thumbnail_text_bg_combo.itemData(i) == bg_mode:
+                    self.thumbnail_text_bg_combo.setCurrentIndex(i)
+                    break
         
 
         # Qt 이벤트 루프가 텍스트를 완전히 반영한 후 상태 업데이트
@@ -10065,6 +10189,35 @@ class NaverBlogGUI(QMainWindow):
         self.update_status_display()
         self._update_settings_summary()
         self._show_auto_close_message("✅ AI 설정이 저장되었습니다", QMessageBox.Icon.Information)
+
+    def save_thumbnail_style_settings(self):
+        """썸네일 제목 스타일 설정 저장"""
+        font_size = int(self.thumbnail_font_size_spin.value()) if hasattr(self, "thumbnail_font_size_spin") else 0
+        font_bold = bool(self.thumbnail_font_bold_checkbox.isChecked()) if hasattr(self, "thumbnail_font_bold_checkbox") else True
+        bg_mode = "auto"
+        if hasattr(self, "thumbnail_text_bg_combo"):
+            bg_mode = str(self.thumbnail_text_bg_combo.currentData() or "auto").strip().lower()
+        if bg_mode not in ("none", "auto", "white", "black", "yellow"):
+            bg_mode = "auto"
+
+        self.config["thumbnail_font_size"] = font_size
+        self.config["thumbnail_font_bold"] = font_bold
+        self.config["thumbnail_text_bg"] = bg_mode
+
+        bg_label_map = {
+            "none": "없음",
+            "auto": "자동",
+            "white": "흰색",
+            "black": "검정",
+            "yellow": "노랑",
+        }
+        size_text = "자동" if font_size <= 0 else str(font_size)
+        self._update_settings_status(
+            f"🖼️ 썸네일 스타일 저장: 크기={size_text}, 볼드={'ON' if font_bold else 'OFF'}, 배경={bg_label_map.get(bg_mode, '자동')}"
+        )
+        self.save_config_file()
+        self._show_auto_close_message("✅ 썸네일 제목 스타일이 저장되었습니다", QMessageBox.Icon.Information)
+
     def on_posting_method_changed(self):
         """포스팅 방법 라디오 변경 시 상태 반영"""
         method = "home" if self.posting_home_radio.isChecked() else "search"
