@@ -11079,8 +11079,20 @@ if __name__ == "__main__":
     painter.end()
     
     splash = QSplashScreen(splash_pix, Qt.WindowType.WindowStaysOnTopHint)
-    splash.show()
-    app.processEvents()  # 즉시 화면에 표시
+    try:
+        splash.show()
+        app.processEvents()  # 즉시 화면에 표시
+    except KeyboardInterrupt:
+        # 시작 직후 Ctrl+C 입력 시 트레이스백 없이 조용히 종료
+        try:
+            splash.close()
+        except Exception:
+            pass
+        try:
+            app.quit()
+        except Exception:
+            pass
+        sys.exit(0)
     
     # 0. 라이선스 로직 무결성 체크 (제거됨 - 사용자 요청)
     # def _verify_license_code_integrity(): ...
