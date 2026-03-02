@@ -348,10 +348,14 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
         if not path or not os.path.isdir(path):
             return
         try:
-            for name in sorted(os.listdir(path)):
-                lower = name.lower()
-                if lower.endswith((".ttf", ".otf", ".ttc")):
-                    _add(os.path.join(path, name))
+            discovered = []
+            for root, _, files in os.walk(path):
+                for name in files:
+                    lower = name.lower()
+                    if lower.endswith((".ttf", ".otf", ".ttc")):
+                        discovered.append(os.path.join(root, name))
+            for fp in sorted(discovered):
+                _add(fp)
         except Exception:
             pass
 
