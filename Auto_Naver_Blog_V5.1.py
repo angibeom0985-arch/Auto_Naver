@@ -6701,7 +6701,9 @@ class ThumbnailManagerDialog(QDialog):
         super().__init__(parent)
         self.parent = parent
         self.setWindowTitle("썸네일 관리")
-        self.setMinimumSize(760, 620)
+        self.setMinimumSize(1280, 820)
+        self.resize(1600, 920)
+        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -6742,14 +6744,14 @@ class ThumbnailManagerDialog(QDialog):
         self.preview_timer.timeout.connect(self.render_preview)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(28, 24, 28, 24)
+        root.setSpacing(18)
 
         left_panel = QWidget()
-        left_panel.setMinimumWidth(430)
+        left_panel.setMinimumWidth(620)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(18)
 
         info = QLabel("썸네일 배경 JPG에 예시 문구를 써보며 폰트/스타일을 미리 조정할 수 있습니다.")
         info.setWordWrap(False)
@@ -6761,11 +6763,11 @@ class ThumbnailManagerDialog(QDialog):
         root.addWidget(self.source_label)
 
         content_row = QHBoxLayout()
-        content_row.setSpacing(14)
+        content_row.setSpacing(24)
 
         form = QGridLayout()
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(14)
 
         form.addWidget(QLabel("예시 문구"), 0, 0)
         self.preview_text_entry = QLineEdit()
@@ -6785,12 +6787,11 @@ class ThumbnailManagerDialog(QDialog):
         refresh_btn.clicked.connect(self.refresh_fonts)
         form.addWidget(refresh_btn, 1, 2)
 
-        form.addWidget(QLabel("폰트 크기"), 2, 0)
         size_style_row = QHBoxLayout()
-        size_style_row.setSpacing(6)
+        size_style_row.setSpacing(10)
 
         self.font_size_minus_btn = QPushButton("-")
-        self.font_size_minus_btn.setFixedWidth(34)
+        self.font_size_minus_btn.setFixedSize(42, 38)
         self.font_size_minus_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         self.font_size_minus_btn.setToolTip("폰트 크기를 1 줄입니다.")
         self.font_size_minus_btn.clicked.connect(lambda: self._change_font_size(-1))
@@ -6800,11 +6801,12 @@ class ThumbnailManagerDialog(QDialog):
         self.font_size_spin.setRange(0, 72)
         self.font_size_spin.setSpecialValueText("자동")
         self.font_size_spin.setToolTip("0은 자동 크기, 1~72는 고정 크기입니다.")
-        self.font_size_spin.setMaximumWidth(90)
+        self.font_size_spin.setMinimumWidth(110)
+        self.font_size_spin.setMaximumWidth(140)
         size_style_row.addWidget(self.font_size_spin)
 
         self.font_size_plus_btn = QPushButton("+")
-        self.font_size_plus_btn.setFixedWidth(34)
+        self.font_size_plus_btn.setFixedSize(42, 38)
         self.font_size_plus_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         self.font_size_plus_btn.setToolTip("폰트 크기를 1 키웁니다.")
         self.font_size_plus_btn.clicked.connect(lambda: self._change_font_size(1))
@@ -6816,10 +6818,10 @@ class ThumbnailManagerDialog(QDialog):
                 border-radius: 8px;
                 background-color: #FFFFFF;
                 color: {NAVER_TEXT};
-                min-width: 34px;
-                max-width: 34px;
-                min-height: 32px;
-                max-height: 32px;
+                min-width: 40px;
+                max-width: 40px;
+                min-height: 38px;
+                max-height: 38px;
                 padding: 0px;
                 font-size: 14px;
                 font-weight: bold;
@@ -6855,7 +6857,7 @@ class ThumbnailManagerDialog(QDialog):
         self.text_bg_popup_btn.clicked.connect(lambda: self.text_bg_combo.showPopup())
         size_style_row.addWidget(self.text_bg_popup_btn)
 
-        size_style_row.addStretch()
+        size_style_row.addStretch(1)
         form.addWidget(QLabel("폰트 크기"), 2, 0)
         form.addLayout(size_style_row, 2, 1, 1, 2)
 
@@ -6950,7 +6952,7 @@ class ThumbnailManagerDialog(QDialog):
         form.addLayout(fav_layout, 11, 0, 1, 3)
 
         left_layout.addLayout(form)
-        left_layout.addStretch()
+        left_layout.addStretch(1)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -6977,7 +6979,7 @@ class ThumbnailManagerDialog(QDialog):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        right_layout.setSpacing(12)
 
         preview_title = QLabel("썸네일 미리보기")
         preview_title.setStyleSheet(f"color: {NAVER_TEXT}; font-weight: bold;")
@@ -6985,7 +6987,7 @@ class ThumbnailManagerDialog(QDialog):
 
         self.preview_image_label = QLabel("미리보기를 생성하면 여기에 표시됩니다.")
         self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_image_label.setMinimumSize(320, 420)
+        self.preview_image_label.setMinimumSize(560, 640)
         self.preview_image_label.setStyleSheet(f"""
             QLabel {{
                 background-color: #FFFFFF;
@@ -6996,8 +6998,8 @@ class ThumbnailManagerDialog(QDialog):
         """)
         right_layout.addWidget(self.preview_image_label, 1)
 
-        content_row.addWidget(left_panel, 0)
-        content_row.addWidget(right_panel, 1)
+        content_row.addWidget(left_panel, 5)
+        content_row.addWidget(right_panel, 6)
         root.addLayout(content_row)
 
         self._load_initial_values()
@@ -9905,6 +9907,7 @@ class NaverBlogGUI(QMainWindow):
 
     def open_thumbnail_manager_dialog(self):
         dialog = ThumbnailManagerDialog(self)
+        dialog.showMaximized()
         dialog.exec()
 
     def save_naver_accounts_from_slots(self, slots, active_slot, show_message=False):
