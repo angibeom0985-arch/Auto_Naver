@@ -8739,7 +8739,7 @@ class NaverBlogGUI(QMainWindow):
 
         runtime_help_btn_row = QHBoxLayout()
         runtime_help_btn_row.addStretch()
-        self.runtime_help_copy_btn = QPushButton("📋 전달 메시지 복사")
+        self.runtime_help_copy_btn = QPushButton("📋 복사")
         self.runtime_help_copy_btn.setStyleSheet(f"background-color: {NAVER_BLUE};")
         self.runtime_help_copy_btn.clicked.connect(self._copy_runtime_help_message)
         runtime_help_btn_row.addWidget(self.runtime_help_copy_btn)
@@ -12003,21 +12003,51 @@ class NaverBlogGUI(QMainWindow):
         ]
         return "\n".join(lines)
 
+    def _build_runtime_error_log_block(self, context, error_type, error_message, solution, david_message):
+        lines = [
+            "🚨 오류 상세 안내",
+            "해결 방법:",
+            f"- {solution}",
+            f"- 오류 위치: {context}",
+            f"- 오류 종류: {error_type}",
+            f"- 오류 메시지: {error_message}",
+            "데이비에게 전달할 메시지:",
+            david_message,
+        ]
+        return "\n".join(lines)
+
     def _show_runtime_error_help_safe(self, context, error_type, error_message):
         solution = self._recommend_runtime_solution(context, error_type, error_message)
         david_message = self._build_david_message(context, error_type, error_message)
+        detail_block = self._build_runtime_error_log_block(
+            context=context,
+            error_type=error_type,
+            error_message=error_message,
+            solution=solution,
+            david_message=david_message,
+        )
         self._latest_david_message = david_message
         if hasattr(self, "runtime_help_solution_label"):
-            self.runtime_help_solution_label.setText(f"🛠️ 해결 방법: {solution}")
+            self.runtime_help_solution_label.setText(
+                "\n".join(
+                    [
+                        "해결 방법:",
+                        f"- {solution}",
+                        f"- 오류 위치: {context}",
+                        f"- 오류 종류: {error_type}",
+                        f"- 오류 메시지: {error_message}",
+                    ]
+                )
+            )
         if hasattr(self, "runtime_help_message_text"):
             self.runtime_help_message_text.setPlainText(david_message)
         if hasattr(self, "runtime_help_copy_btn"):
-            self.runtime_help_copy_btn.setText("📋 전달 메시지 복사")
+            self.runtime_help_copy_btn.setText("📋 복사")
         if hasattr(self, "runtime_help_frame"):
             self.runtime_help_frame.setVisible(True)
 
-        self.update_progress_status(f"🛠️ 해결 방법: {solution}")
-        self.update_progress_status("📨 데이비 전달 메시지: 아래 '전달 메시지 복사' 버튼으로 즉시 복사하세요.")
+        self.update_progress_status(detail_block)
+        self.update_progress_status("📨 '데이비에게 전달할 메시지'는 아래 버튼으로 복사할 수 있습니다.")
 
     def _copy_runtime_help_message(self):
         msg = str(getattr(self, "_latest_david_message", "") or "").strip()
