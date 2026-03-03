@@ -11537,6 +11537,17 @@ class NaverBlogGUI(QMainWindow):
                     time.sleep(min(step, end_time - time.time()))
                 return True
 
+            def _move_to_next_account(current_accounts, current_pos):
+                """계정 순환 인덱스를 안전하게 다음 계정으로 이동"""
+                if not current_accounts:
+                    return 0
+                if len(current_accounts) <= 1:
+                    return 0
+                next_pos = (current_pos + 1) % len(current_accounts)
+                next_slot_idx, next_id, _ = current_accounts[next_pos]
+                self.update_progress_status(f"🔁 다음 계정 대기: 계정 {next_slot_idx + 1} ({next_id})")
+                return next_pos
+
             # 무한 반복 (is_running이 False가 될 때까지)
             is_first_run_flag = is_first_start
             registered_accounts = self._get_registered_naver_accounts()
@@ -11549,6 +11560,16 @@ class NaverBlogGUI(QMainWindow):
             
             while self.is_running and not self.stop_requested:
                 try:
+                    # 실행 중 계정 설정이 바뀔 수 있으므로 매 루프마다 최신 목록 재평가
+                    registered_accounts = self._get_registered_naver_accounts()
+                    if not registered_accounts:
+                        self.update_progress_status("❌ 등록된 네이버 계정이 없습니다.")
+                        self.is_running = False
+                        self.ui_state_signal.emit(True, False, False, False)
+                        break
+                    if account_cycle_pos < 0 or account_cycle_pos >= len(registered_accounts):
+                        account_cycle_pos = 0
+
                     if not is_first_run_flag:
                         pass
 
@@ -11654,6 +11675,7 @@ class NaverBlogGUI(QMainWindow):
                                         self.automation = None
                                 except Exception:
                                     self.automation = None
+                                account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                                 if not _sleep_interruptible(5):
                                     break
                                 continue
@@ -11707,6 +11729,7 @@ class NaverBlogGUI(QMainWindow):
                                 self.automation = None
                             
                             # 잠시 대기 후 재시도
+                            account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                             if not _sleep_interruptible(5):
                                 break
                             continue
@@ -11716,10 +11739,7 @@ class NaverBlogGUI(QMainWindow):
                     self.consecutive_runtime_errors = 0
                     self.gemini_web_recovery_attempts = 0
 
-                    if len(registered_accounts) > 1:
-                        account_cycle_pos = (account_cycle_pos + 1) % len(registered_accounts)
-                        next_slot_idx, next_id, _ = registered_accounts[account_cycle_pos]
-                        self.update_progress_status(f"🔁 다음 계정 대기: 계정 {next_slot_idx + 1} ({next_id})")
+                    account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                     
                     # UI 상태 갱신 (키워드 개수 등 실시간 업데이트)
                     self.ui_refresh_status_signal.emit()
@@ -11793,6 +11813,7 @@ class NaverBlogGUI(QMainWindow):
                     except Exception:
                         pass
                     self.automation = None
+                    account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                     if not _sleep_interruptible(5):
                         break
                     continue
