@@ -1163,6 +1163,7 @@ class NaverBlogAutomation:
         self.profile_dir = ""
         self.force_account_relogin = False
         self.last_authenticated_naver_id = ""
+        self._naver_2fa_trust_clicked = False
         
         # 디렉토리 설정 (exe 우선, 실패 시 LOCALAPPDATA fallback)
         self.data_dir, self.data_dir_source = _resolve_runtime_data_dir()
@@ -5908,15 +5909,85 @@ class NaverBlogAutomation:
             self._update_status(f"⚠️ 로그인 상태 유지 체크 중 예외: {str(e)} (계속 진행)")
             return False
 
+    def _fill_naver_login_field(self, element_id, value, field_name):
+        """로그인 입력칸을 초기화 후 붙여넣고 값 일치까지 검증"""
+        expected = "" if value is None else str(value)
+        for _ in range(3):
+            field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, element_id))
+            )
+
+            try:
+                self.driver.execute_script("arguments[0].focus();", field)
+                field.click()
+            except Exception:
+                pass
+
+            # 자동완성/기존값으로 인한 누적 입력을 막기 위해 먼저 강제 초기화
+            try:
+                field.send_keys(Keys.CONTROL, "a")
+                field.send_keys(Keys.DELETE)
+            except Exception:
+                pass
+            try:
+                self.driver.execute_script("arguments[0].value = '';", field)
+            except Exception:
+                pass
+
+            pyperclip.copy(expected)
+            try:
+                field.send_keys(Keys.CONTROL, "v")
+            except Exception:
+                ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("v").key_up(Keys.CONTROL).perform()
+
+            self._sleep_with_checks(0.25)
+            actual = field.get_attribute("value") or ""
+            if actual == expected:
+                return True
+
+        # 마지막 폴백: DOM 값 직접 대입 + 이벤트 발화
+        try:
+            field = self.driver.find_element(By.ID, element_id)
+            self.driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+                "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
+                field,
+                expected,
+            )
+            self._sleep_with_checks(0.1)
+            if (field.get_attribute("value") or "") == expected:
+                return True
+        except Exception:
+            pass
+
+        self._update_status(f"❌ {field_name} 입력값 검증 실패")
+        return False
+
     def _try_check_naver_2fa_trust_browser(self):
         """2단계 인증 화면의 '이 브라우저는 2단계 인증 없이 로그인' 체크 시도"""
         try:
-            text_node = self.driver.find_elements(By.CSS_SELECTOR, "#not_ask_again")
+            if self._naver_2fa_trust_clicked:
+                return True
+
+            text_node = self.driver.find_elements(By.CSS_SELECTOR, "#not_ask_again, label[for='wait'], #wait")
             if not text_node:
                 return False
 
+            check_targets = [
+                "#wait",
+                "#check_not_ask_again",
+            ]
+            for check_sel in check_targets:
+                check_elems = self.driver.find_elements(By.CSS_SELECTOR, check_sel)
+                if check_elems and check_elems[0].is_selected():
+                    self._naver_2fa_trust_clicked = True
+                    return True
+
             # 문구가 보이면 연결된 체크 컨트롤을 클릭해 신뢰 브라우저로 등록
             selectors = [
+                "#wait",
+                "label[for='wait']",
                 "#check_not_ask_again",
                 "label[for='check_not_ask_again']",
                 "#not_ask_again",
@@ -5933,6 +6004,7 @@ class NaverBlogAutomation:
                 except Exception:
                     self.driver.execute_script("arguments[0].click();", elem)
                 self._sleep_with_checks(0.2)
+                self._naver_2fa_trust_clicked = True
                 self._update_status("✅ 2단계 인증 예외(이 브라우저) 체크 완료")
                 return True
             return False
@@ -5965,30 +6037,23 @@ class NaverBlogAutomation:
             self._update_status("🔐 네이버 로그인 페이지 이동 중...")
             self.driver.get("https://nid.naver.com/nidlogin.login")
             self._sleep_with_checks(2)
+            self._naver_2fa_trust_clicked = False
             
             if self.should_stop:
                 return False
 
             # 아이디 입력
             self._update_status("🔐 아이디 입력 중...")
-            id_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, "id"))
-            )
-            id_input.click()
-            pyperclip.copy(self.naver_id)
-            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-            self._sleep_with_checks(1)
+            if not self._fill_naver_login_field("id", self.naver_id, "아이디"):
+                return False
             
             if self.should_stop:
                 return False
 
             # 비밀번호 입력
             self._update_status("🔐 비밀번호 입력 중...")
-            pw_input = self.driver.find_element(By.ID, "pw")
-            pw_input.click()
-            pyperclip.copy(self.naver_pw)
-            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-            self._sleep_with_checks(1)
+            if not self._fill_naver_login_field("pw", self.naver_pw, "비밀번호"):
+                return False
             
             if self.should_stop:
                 return False
