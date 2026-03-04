@@ -11646,32 +11646,29 @@ class NaverBlogGUI(QMainWindow):
                     time.sleep(min(step, end_time - time.time()))
                 return True
 
-            def _move_to_next_account(current_accounts, current_pos):
-                """계정 순환 인덱스를 안전하게 다음 계정으로 이동"""
+            def _resolve_account_cycle_position(current_accounts, next_slot_cursor):
+                """다음 실행할 계정을 슬롯 커서 기준으로 결정"""
                 if not current_accounts:
                     return 0
-                if len(current_accounts) <= 1:
-                    return 0
+                if next_slot_cursor is None:
+                    return self._get_account_cycle_start_position(current_accounts)
+                for pos, (slot_idx, _, _) in enumerate(current_accounts):
+                    if slot_idx == next_slot_cursor:
+                        return pos
+                return 0
+
+            def _peek_next_slot_cursor(current_accounts, current_pos):
+                """이번 계정 처리 후 다음 루프에 사용할 슬롯 커서 계산"""
+                if not current_accounts:
+                    return None
+                if current_pos < 0 or current_pos >= len(current_accounts):
+                    current_pos = 0
+                if len(current_accounts) == 1:
+                    return current_accounts[current_pos][0]
                 next_pos = (current_pos + 1) % len(current_accounts)
                 next_slot_idx, next_id, _ = current_accounts[next_pos]
                 self.update_progress_status(f"🔁 다음 계정 대기: 계정 {next_slot_idx + 1} ({next_id})")
-                return next_pos
-
-            def _prevent_same_account_repeat(current_accounts, current_pos, last_slot_idx):
-                """
-                2개 이상 계정일 때 직전 계정이 다시 선택되면
-                강제로 다음 계정으로 이동해 순환이 멈추지 않도록 보정.
-                """
-                if not current_accounts or len(current_accounts) <= 1:
-                    return current_pos
-                if last_slot_idx is None:
-                    return current_pos
-                if current_pos < 0 or current_pos >= len(current_accounts):
-                    return 0
-                slot_idx, _, _ = current_accounts[current_pos]
-                if slot_idx != last_slot_idx:
-                    return current_pos
-                return _move_to_next_account(current_accounts, current_pos)
+                return next_slot_idx
 
             # 무한 반복 (is_running이 False가 될 때까지)
             is_first_run_flag = is_first_start
@@ -11681,8 +11678,11 @@ class NaverBlogGUI(QMainWindow):
                 self.is_running = False
                 self.ui_state_signal.emit(True, False, False, False)
                 return
-            account_cycle_pos = self._get_account_cycle_start_position(registered_accounts)
-            last_attempt_slot_idx = None
+            next_account_slot_cursor = None
+            try:
+                next_account_slot_cursor = int(self.config.get("active_naver_account_slot", 0))
+            except Exception:
+                next_account_slot_cursor = None
             
             while self.is_running and not self.stop_requested:
                 try:
@@ -11693,19 +11693,16 @@ class NaverBlogGUI(QMainWindow):
                         self.is_running = False
                         self.ui_state_signal.emit(True, False, False, False)
                         break
-                    if account_cycle_pos < 0 or account_cycle_pos >= len(registered_accounts):
-                        account_cycle_pos = 0
-                    account_cycle_pos = _prevent_same_account_repeat(
+                    account_cycle_pos = _resolve_account_cycle_position(
                         registered_accounts,
-                        account_cycle_pos,
-                        last_attempt_slot_idx
+                        next_account_slot_cursor
                     )
 
                     if not is_first_run_flag:
                         pass
 
                     slot_idx, cycle_naver_id, cycle_naver_pw = registered_accounts[account_cycle_pos]
-                    last_attempt_slot_idx = slot_idx
+                    next_account_slot_cursor = _peek_next_slot_cursor(registered_accounts, account_cycle_pos)
                     self.config["active_naver_account_slot"] = slot_idx
                     self.config["naver_id"] = cycle_naver_id
                     self.config["naver_pw"] = cycle_naver_pw
@@ -11807,7 +11804,6 @@ class NaverBlogGUI(QMainWindow):
                                         self.automation = None
                                 except Exception:
                                     self.automation = None
-                                account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                                 if not _sleep_interruptible(5):
                                     break
                                 continue
@@ -11861,7 +11857,6 @@ class NaverBlogGUI(QMainWindow):
                                 self.automation = None
                             
                             # 잠시 대기 후 재시도
-                            account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                             if not _sleep_interruptible(5):
                                 break
                             continue
@@ -11870,8 +11865,6 @@ class NaverBlogGUI(QMainWindow):
                     print("✅ 포스팅이 완료되었습니다!")
                     self.consecutive_runtime_errors = 0
                     self.gemini_web_recovery_attempts = 0
-
-                    account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                     
                     # UI 상태 갱신 (키워드 개수 등 실시간 업데이트)
                     self.ui_refresh_status_signal.emit()
@@ -11945,7 +11938,6 @@ class NaverBlogGUI(QMainWindow):
                     except Exception:
                         pass
                     self.automation = None
-                    account_cycle_pos = _move_to_next_account(registered_accounts, account_cycle_pos)
                     if not _sleep_interruptible(5):
                         break
                     continue
