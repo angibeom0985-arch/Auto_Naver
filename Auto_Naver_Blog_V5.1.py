@@ -8486,6 +8486,35 @@ class NaverBlogGUI(QMainWindow):
         self.current_posting_account_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
         self.current_posting_account_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
         current_account_layout.addWidget(self.current_posting_account_label)
+
+        self.monitor_naver_account_selector = QComboBox()
+        self.monitor_naver_account_selector.setMinimumWidth(220)
+        self.monitor_naver_account_selector.setMaxVisibleItems(6)
+        self.monitor_naver_account_selector.setEditable(False)
+        self.monitor_naver_account_selector.setStyleSheet(f"""
+            QComboBox {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 4px 8px;
+                background-color: white;
+                color: #000000;
+                font-size: 12px;
+            }}
+            QComboBox:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: white;
+                color: #000000;
+                border: 1px solid {NAVER_BORDER};
+                selection-background-color: {NAVER_GREEN_LIGHT};
+                selection-color: #000000;
+                outline: none;
+            }}
+        """)
+        self.monitor_naver_account_selector.currentIndexChanged.connect(self.on_naver_account_selector_changed)
+        current_account_layout.addStretch()
+        current_account_layout.addWidget(self.monitor_naver_account_selector)
         status_card.content_layout.addLayout(current_account_layout)
         
         # 로그인 정보 상태
@@ -10135,6 +10164,21 @@ class NaverBlogGUI(QMainWindow):
             if self.naver_account_selector.count() > 0:
                 self.naver_account_selector.setCurrentIndex(active_slot)
             self.naver_account_selector.blockSignals(False)
+
+        if hasattr(self, "monitor_naver_account_selector"):
+            self.monitor_naver_account_selector.blockSignals(True)
+            self.monitor_naver_account_selector.clear()
+            for i, slot in enumerate(slots):
+                account_id = str(slot.get("id", "")).strip()
+                account_pw = str(slot.get("pw", "")).strip()
+                if account_id and account_pw:
+                    label = f"계정 {i + 1}: {account_id}"
+                else:
+                    label = f"계정 {i + 1}: 미설정"
+                self.monitor_naver_account_selector.addItem(label, i)
+            if self.monitor_naver_account_selector.count() > 0:
+                self.monitor_naver_account_selector.setCurrentIndex(active_slot)
+            self.monitor_naver_account_selector.blockSignals(False)
 
         self._apply_related_posts_ui_for_account(self.config.get("naver_id", ""))
 
