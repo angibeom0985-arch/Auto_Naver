@@ -11657,6 +11657,22 @@ class NaverBlogGUI(QMainWindow):
                 self.update_progress_status(f"🔁 다음 계정 대기: 계정 {next_slot_idx + 1} ({next_id})")
                 return next_pos
 
+            def _prevent_same_account_repeat(current_accounts, current_pos, last_slot_idx):
+                """
+                2개 이상 계정일 때 직전 계정이 다시 선택되면
+                강제로 다음 계정으로 이동해 순환이 멈추지 않도록 보정.
+                """
+                if not current_accounts or len(current_accounts) <= 1:
+                    return current_pos
+                if last_slot_idx is None:
+                    return current_pos
+                if current_pos < 0 or current_pos >= len(current_accounts):
+                    return 0
+                slot_idx, _, _ = current_accounts[current_pos]
+                if slot_idx != last_slot_idx:
+                    return current_pos
+                return _move_to_next_account(current_accounts, current_pos)
+
             # 무한 반복 (is_running이 False가 될 때까지)
             is_first_run_flag = is_first_start
             registered_accounts = self._get_registered_naver_accounts()
@@ -11666,6 +11682,7 @@ class NaverBlogGUI(QMainWindow):
                 self.ui_state_signal.emit(True, False, False, False)
                 return
             account_cycle_pos = self._get_account_cycle_start_position(registered_accounts)
+            last_attempt_slot_idx = None
             
             while self.is_running and not self.stop_requested:
                 try:
@@ -11678,11 +11695,17 @@ class NaverBlogGUI(QMainWindow):
                         break
                     if account_cycle_pos < 0 or account_cycle_pos >= len(registered_accounts):
                         account_cycle_pos = 0
+                    account_cycle_pos = _prevent_same_account_repeat(
+                        registered_accounts,
+                        account_cycle_pos,
+                        last_attempt_slot_idx
+                    )
 
                     if not is_first_run_flag:
                         pass
 
                     slot_idx, cycle_naver_id, cycle_naver_pw = registered_accounts[account_cycle_pos]
+                    last_attempt_slot_idx = slot_idx
                     self.config["active_naver_account_slot"] = slot_idx
                     self.config["naver_id"] = cycle_naver_id
                     self.config["naver_pw"] = cycle_naver_pw
