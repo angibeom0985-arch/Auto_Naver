@@ -275,21 +275,77 @@ def _write_keyword_source_path(base_dir, account_id, source_path):
         pass
 
 def _find_keyword_source_path(base_dir, account_id):
+    def _is_candidate_txt(path):
+        if not path or not os.path.isfile(path):
+            return False
+        name = os.path.basename(path).lower()
+        if not name.endswith(".txt"):
+            return False
+        if name.startswith("used_"):
+            return False
+        if name in ("keywords_source_name.txt", "keywords_source_path.txt", "keywords_source_sync_sig.txt"):
+            return False
+        return True
+
+    def _pick_latest_txt(folder):
+        try:
+            if not folder or not os.path.isdir(folder):
+                return ""
+            candidates = []
+            for n in os.listdir(folder):
+                p = os.path.join(folder, n)
+                if _is_candidate_txt(p):
+                    candidates.append(p)
+            if not candidates:
+                return ""
+            candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            return candidates[0]
+        except Exception:
+            return ""
+
     saved_path = _read_keyword_source_path(base_dir, account_id)
-    if saved_path and os.path.isfile(saved_path):
+    if _is_candidate_txt(saved_path):
         return saved_path
 
     source_name = _read_keyword_source_name(base_dir, account_id)
     source_name = os.path.basename(str(source_name or "").strip())
-    if not source_name:
-        return ""
-    if not source_name.lower().endswith(".txt"):
+    if source_name and not source_name.lower().endswith(".txt"):
         source_name = f"{source_name}.txt"
 
-    preferred_path = os.path.join(base_dir, "setting", "keywords", source_name)
-    if os.path.isfile(preferred_path):
-        _write_keyword_source_path(base_dir, account_id, preferred_path)
-        return preferred_path
+    search_dirs = []
+    if saved_path:
+        saved_dir = os.path.dirname(saved_path)
+        if saved_dir:
+            search_dirs.append(saved_dir)
+    search_dirs.append(os.path.join(base_dir, "setting", "keywords"))
+
+    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=True)
+    account_keyword_dir = os.path.dirname(keywords_file)
+    if account_keyword_dir:
+        search_dirs.append(account_keyword_dir)
+
+    seen_dirs = set()
+    unique_search_dirs = []
+    for d in search_dirs:
+        key = os.path.normcase(os.path.abspath(str(d or "")))
+        if key and key not in seen_dirs:
+            seen_dirs.add(key)
+            unique_search_dirs.append(d)
+
+    if source_name:
+        for root in unique_search_dirs:
+            candidate = os.path.join(root, source_name)
+            if _is_candidate_txt(candidate):
+                _write_keyword_source_name(base_dir, account_id, os.path.basename(candidate))
+                _write_keyword_source_path(base_dir, account_id, candidate)
+                return candidate
+
+    for root in unique_search_dirs:
+        latest = _pick_latest_txt(root)
+        if latest:
+            _write_keyword_source_name(base_dir, account_id, os.path.basename(latest))
+            _write_keyword_source_path(base_dir, account_id, latest)
+            return latest
 
     return ""
 
