@@ -16,6 +16,18 @@ import ctypes
 import pyperclip
 import re
 
+# Qt native crash 방지용 기본 런타임 설정
+def _configure_qt_runtime_stability():
+    if sys.platform != "win32":
+        return
+    # 일부 Windows/드라이버 조합에서 Qt6Core.dll 접근 위반을 유발하는 경로를 회피
+    os.environ.setdefault("QT_OPENGL", "software")
+    os.environ.setdefault("QT_QUICK_BACKEND", "software")
+    os.environ.setdefault("QT_STYLE_OVERRIDE", "Fusion")
+    os.environ.setdefault("QT_NO_STYLEPLUGIN", "1")
+
+_configure_qt_runtime_stability()
+
 # [즉시 실행] 콘솔 창 숨기기 (Py 실행 시 검은 화면 방지)
 try:
     if not getattr(sys, 'frozen', False):
@@ -12539,6 +12551,10 @@ if __name__ == "__main__":
     
     # QApplication 최우선 생성 (스플래시 화면을 가장 먼저 띄우기 위해)
     app = QApplication(sys.argv)
+    try:
+        app.setStyle("Fusion")
+    except Exception:
+        pass
     
     # Windows 작업 표시줄 아이콘 설정 (AppUserModelID)
     if sys.platform == 'win32':
@@ -13139,6 +13155,10 @@ if __name__ == "__main__":
         pass
         
     app = QApplication(sys.argv)
+    try:
+        app.setStyle("Fusion")
+    except Exception:
+        pass
     window = NaverBlogGUI()
     window.show()
     sys.exit(app.exec())
