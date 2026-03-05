@@ -311,6 +311,95 @@ def _resolve_used_keyword_log_path(base_dir, account_id, create=False):
             pass
     return used_path
 
+def _resolve_keyword_source_sync_meta_path(base_dir, account_id, create=False):
+    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
+    keyword_dir = os.path.dirname(keywords_file)
+    if create:
+        os.makedirs(keyword_dir, exist_ok=True)
+    return os.path.join(keyword_dir, "keywords_source_sync_sig.txt")
+
+def _read_keyword_source_sync_sig(base_dir, account_id):
+    meta_path = _resolve_keyword_source_sync_meta_path(base_dir, account_id, create=False)
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                return (f.read() or "").strip()
+    except Exception:
+        pass
+    return ""
+
+def _write_keyword_source_sync_sig(base_dir, account_id, sig):
+    meta_path = _resolve_keyword_source_sync_meta_path(base_dir, account_id, create=True)
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            f.write(str(sig or "").strip())
+    except Exception:
+        pass
+
+def _keyword_file_signature(path):
+    try:
+        if not path or not os.path.isfile(path):
+            return ""
+        stat = os.stat(path)
+        return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
+    except Exception:
+        return ""
+
+def _read_keyword_lines(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    except Exception:
+        return []
+
+def _sync_account_keywords_from_source(base_dir, account_id):
+    """
+    연결된 원본 키워드 파일이 바뀐 경우 계정 전용 keywords.txt를 자동 동기화한다.
+    동기화 시 used 로그를 반영하여 이미 사용한 키워드는 다시 들어오지 않게 유지한다.
+    """
+    source_path = _find_keyword_source_path(base_dir, account_id)
+    if not source_path or not os.path.isfile(source_path):
+        return False
+
+    keywords_file, legacy_used_file = _resolve_account_keyword_paths(base_dir, account_id, create=True)
+    used_keywords_file = _resolve_used_keyword_log_path(base_dir, account_id, create=True)
+
+    try:
+        if os.path.samefile(source_path, keywords_file):
+            return False
+    except Exception:
+        pass
+
+    source_sig = _keyword_file_signature(source_path)
+    if not source_sig:
+        return False
+
+    prev_sig = _read_keyword_source_sync_sig(base_dir, account_id)
+    if source_sig == prev_sig:
+        return False
+
+    source_keywords = _read_keyword_lines(source_path)
+    if not source_keywords:
+        with open(keywords_file, "w", encoding="utf-8"):
+            pass
+        _write_keyword_source_sync_sig(base_dir, account_id, source_sig)
+        return True
+
+    used_set = set(_read_keyword_lines(used_keywords_file))
+    if os.path.abspath(legacy_used_file) != os.path.abspath(used_keywords_file):
+        used_set.update(_read_keyword_lines(legacy_used_file))
+
+    filtered_keywords = [kw for kw in source_keywords if kw not in used_set]
+    current_keywords = _read_keyword_lines(keywords_file)
+
+    if filtered_keywords != current_keywords:
+        with open(keywords_file, "w", encoding="utf-8") as f:
+            for kw in filtered_keywords:
+                f.write(kw + "\n")
+
+    _write_keyword_source_sync_sig(base_dir, account_id, source_sig)
+    return True
+
 def _resolve_account_thumbnail_dir(base_dir, account_id, create=False):
     import shutil
 
@@ -1603,6 +1692,7 @@ class NaverBlogAutomation:
     
     def load_keyword(self):
         """키워드를 keywords.txt 파일에서 로드 (개수 확인 및 경고)"""
+        _sync_account_keywords_from_source(self.data_dir, self.naver_id)
         keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
         
         # 파일 읽기 재시도 로직 (파일 동시 접근 문제 해결)
@@ -10352,6 +10442,7 @@ class NaverBlogGUI(QMainWindow):
             source_name = os.path.basename(source_file)
             _write_keyword_source_name(self.data_dir, account_id, source_name)
             _write_keyword_source_path(self.data_dir, account_id, source_file)
+            _write_keyword_source_sync_sig(self.data_dir, account_id, _keyword_file_signature(source_file))
 
             # 새 키워드 파일로 교체 시 used_<원본파일명>.txt를 초기화
             selected_used_file = _resolve_used_keyword_log_path(self.data_dir, account_id, create=True)
@@ -10935,6 +11026,8 @@ class NaverBlogGUI(QMainWindow):
     def count_keywords(self):
         """키워드 개수 카운트"""
         try:
+            account_id = self._selected_naver_account_id()
+            _sync_account_keywords_from_source(self.data_dir, account_id)
             keywords_file = self._selected_keywords_file(create=True)
             if os.path.exists(keywords_file):
                 with open(keywords_file, "r", encoding="utf-8") as f:
@@ -11893,9 +11986,10 @@ class NaverBlogGUI(QMainWindow):
                     
                     # 남은 키워드 수 확인 및 30개 미만 경고
                     try:
+                        _sync_account_keywords_from_source(self.data_dir, self._selected_naver_account_id())
                         keywords_file = self._selected_keywords_file(create=True)
                         with open(keywords_file, 'r', encoding='utf-8') as f:
-                            remaining_keywords = [line.strip() for line in f if line.strip()]
+                            remaining_keywords = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
                             keyword_count = len(remaining_keywords)
                             
                             if keyword_count < 30 and keyword_count > 0:
