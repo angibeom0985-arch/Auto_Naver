@@ -7838,14 +7838,14 @@ class ThumbnailManagerDialog(QDialog):
 
 
 class RelatedPostsAccountDialog(QDialog):
-    """계정별 관련 글(섹션 제목/블로그 주소) 설정 다이얼로그"""
+    """계정별 관련 글(사용 여부/섹션 제목/블로그 주소) 설정 다이얼로그"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
         self.account_inputs = []
         self.setWindowTitle("계정별 관련 글 설정")
-        self.setFixedWidth(760)
+        self.setFixedWidth(820)
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -7909,6 +7909,10 @@ class RelatedPostsAccountDialog(QDialog):
             inputs_row.setContentsMargins(0, 0, 0, 0)
             inputs_row.setSpacing(8)
 
+            use_checkbox = QCheckBox("사용")
+            use_checkbox.setFont(QFont(self.parent.font_family, 12, QFont.Weight.Bold))
+            use_checkbox.setStyleSheet(f"color: {NAVER_TEXT}; background-color: transparent; border: none;")
+
             title_entry = QLineEdit()
             title_entry.setPlaceholderText("섹션 제목 (예: 최신 글)")
             title_entry.setFixedHeight(34)
@@ -7917,19 +7921,21 @@ class RelatedPostsAccountDialog(QDialog):
             blog_entry.setPlaceholderText("블로그 주소 아이디 (예: dreamroom_official)")
             blog_entry.setFixedHeight(34)
 
-            title_value, blog_value = self.parent._get_related_posts_values_for_account(account_id)
+            enabled_value, title_value, blog_value = self.parent._get_related_posts_values_for_account(account_id)
+            use_checkbox.setChecked(bool(enabled_value))
             title_entry.setText(title_value)
             if blog_value.startswith("https://blog.naver.com/"):
                 blog_entry.setText(blog_value.replace("https://blog.naver.com/", "", 1))
             else:
                 blog_entry.setText(blog_value)
 
+            inputs_row.addWidget(use_checkbox, 0)
             inputs_row.addWidget(title_entry, 1)
             inputs_row.addWidget(blog_entry, 1)
             row_layout.addLayout(inputs_row)
 
             layout.addWidget(row_frame)
-            self.account_inputs.append((account_id, title_entry, blog_entry))
+            self.account_inputs.append((account_id, use_checkbox, title_entry, blog_entry))
             visible_row_count += 1
 
         if not self.account_inputs:
@@ -7940,7 +7946,7 @@ class RelatedPostsAccountDialog(QDialog):
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 6, 0, 0)
         footer.setSpacing(8)
-        info_label = QLabel("네이버 계정별로 관련 글 섹션 제목/블로그 주소를 저장합니다.")
+        info_label = QLabel("네이버 계정별 관련 글 사용 여부/섹션 제목/블로그 주소를 저장합니다.")
         info_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
         footer.addWidget(info_label)
         footer.addStretch()
@@ -7959,10 +7965,11 @@ class RelatedPostsAccountDialog(QDialog):
 
     def save_and_close(self):
         settings_map = {}
-        for account_id, title_entry, blog_entry in self.account_inputs:
+        for account_id, use_checkbox, title_entry, blog_entry in self.account_inputs:
             title = title_entry.text().strip()
             blog_address = normalize_blog_address(blog_entry.text().strip())
             settings_map[account_id] = {
+                "related_posts_enabled": bool(use_checkbox.isChecked()),
                 "related_posts_title": title,
                 "blog_address": blog_address,
             }
@@ -10581,6 +10588,7 @@ class NaverBlogGUI(QMainWindow):
             if not key or not isinstance(item, dict):
                 continue
             cleaned[key] = {
+                "related_posts_enabled": bool(item.get("related_posts_enabled", True)),
                 "related_posts_title": str(item.get("related_posts_title", "")).strip(),
                 "blog_address": normalize_blog_address(str(item.get("blog_address", "")).strip()),
             }
@@ -10588,31 +10596,40 @@ class NaverBlogGUI(QMainWindow):
 
     def _get_related_posts_values_for_account(self, account_id):
         account_id = str(account_id or "").strip()
+        base_enabled = bool(self.config.get("related_posts_enabled", True))
         base_title = str(self.config.get("related_posts_title", "")).strip()
         if not base_title:
             base_title = self._related_posts_default_title()
         base_blog = normalize_blog_address(str(self.config.get("blog_address", "")).strip())
 
         if not account_id:
-            return base_title, base_blog
+            return base_enabled, base_title, base_blog
 
         account_map = self._get_related_posts_account_settings()
         item = account_map.get(account_id, {})
+        enabled = bool(item.get("related_posts_enabled", base_enabled))
         title = str(item.get("related_posts_title", "")).strip() or base_title
         blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip()) or base_blog
-        return title, blog_address
+        return enabled, title, blog_address
 
     def _apply_related_posts_ui_for_account(self, account_id):
         if not hasattr(self, "related_posts_title_entry") or not hasattr(self, "blog_address_entry"):
             return
-        title, blog_address = self._get_related_posts_values_for_account(account_id)
+        enabled, title, blog_address = self._get_related_posts_values_for_account(account_id)
+        if hasattr(self, "use_related_posts_checkbox"):
+            self.use_related_posts_checkbox.blockSignals(True)
+            self.use_related_posts_checkbox.setChecked(bool(enabled))
+            self.use_related_posts_checkbox.blockSignals(False)
         self.related_posts_title_entry.setText(title)
         if blog_address.startswith("https://blog.naver.com/"):
             self.blog_address_entry.setText(blog_address.replace("https://blog.naver.com/", "", 1))
         else:
             self.blog_address_entry.setText(blog_address)
+        self.config["related_posts_enabled"] = bool(enabled)
         self.config["related_posts_title"] = title
         self.config["blog_address"] = blog_address
+        if hasattr(self, "use_related_posts_checkbox"):
+            self.toggle_related_posts()
 
     def _save_related_posts_account_settings(self, settings_map):
         normalized = {}
@@ -10621,9 +10638,11 @@ class NaverBlogGUI(QMainWindow):
                 key = str(account_id).strip()
                 if not key or not isinstance(item, dict):
                     continue
+                enabled = bool(item.get("related_posts_enabled", True))
                 title = str(item.get("related_posts_title", "")).strip()
                 blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip())
                 normalized[key] = {
+                    "related_posts_enabled": enabled,
                     "related_posts_title": title,
                     "blog_address": blog_address,
                 }
@@ -11986,6 +12005,7 @@ class NaverBlogGUI(QMainWindow):
         if account_id:
             account_map = self._get_related_posts_account_settings()
             account_map[account_id] = {
+                "related_posts_enabled": bool(enabled),
                 "related_posts_title": title,
                 "blog_address": blog_address,
             }
@@ -12151,7 +12171,8 @@ class NaverBlogGUI(QMainWindow):
                     self.config["active_naver_account_slot"] = slot_idx
                     self.config["naver_id"] = cycle_naver_id
                     self.config["naver_pw"] = cycle_naver_pw
-                    related_posts_title, blog_address = self._get_related_posts_values_for_account(cycle_naver_id)
+                    related_posts_enabled, related_posts_title, blog_address = self._get_related_posts_values_for_account(cycle_naver_id)
+                    self.config["related_posts_enabled"] = bool(related_posts_enabled)
                     self.config["related_posts_title"] = related_posts_title
                     self.config["blog_address"] = blog_address
                     use_external_link, account_external_link, account_external_link_text = self._get_external_link_values_for_account(cycle_naver_id)
