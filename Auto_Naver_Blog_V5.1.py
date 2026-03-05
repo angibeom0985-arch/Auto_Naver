@@ -7969,6 +7969,150 @@ class RelatedPostsAccountDialog(QDialog):
         self.parent._save_related_posts_account_settings(settings_map)
         self.accept()
 
+class ExternalLinkAccountDialog(QDialog):
+    """계정별 외부 링크(사용 여부/URL/앵커 텍스트) 설정 다이얼로그"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.account_inputs = []
+        self.setWindowTitle("계정별 외부 링크 설정")
+        self.setFixedWidth(820)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {NAVER_BG};
+            }}
+            QLabel {{
+                color: {NAVER_TEXT};
+                font-size: 13px;
+            }}
+            QLineEdit {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 6px 10px;
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                font-size: 12px;
+                min-height: 30px;
+            }}
+            QLineEdit:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+            QPushButton {{
+                border: none;
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: bold;
+                color: white;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 10, 18, 10)
+        layout.setSpacing(6)
+
+        slots = self.parent._get_naver_account_slots()
+        visible_row_count = 0
+        for i, slot in enumerate(slots):
+            account_id = str(slot.get("id", "")).strip()
+            account_pw = str(slot.get("pw", "")).strip()
+            if not account_id or not account_pw:
+                continue
+
+            row_frame = QFrame()
+            row_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: #FFFFFF;
+                    border: 1px solid {NAVER_BORDER};
+                    border-radius: 8px;
+                }}
+            """)
+            row_layout = QVBoxLayout(row_frame)
+            row_layout.setContentsMargins(12, 8, 12, 8)
+            row_layout.setSpacing(6)
+
+            account_label = QLabel(f"계정 {i + 1}: {account_id}")
+            account_label.setStyleSheet("font-weight: bold;")
+            row_layout.addWidget(account_label)
+
+            inputs_row = QHBoxLayout()
+            inputs_row.setContentsMargins(0, 0, 0, 0)
+            inputs_row.setSpacing(8)
+
+            use_checkbox = QCheckBox("사용")
+            use_checkbox.setFont(QFont(self.parent.font_family, 12, QFont.Weight.Bold))
+            use_checkbox.setStyleSheet(f"color: {NAVER_TEXT}; background-color: transparent; border: none;")
+
+            url_entry = QLineEdit()
+            url_entry.setPlaceholderText("https://example.com")
+            url_entry.setFixedHeight(34)
+
+            text_entry = QLineEdit()
+            text_entry.setPlaceholderText("더 알아보기")
+            text_entry.setFixedHeight(34)
+
+            enabled, ext_url, ext_text = self.parent._get_external_link_values_for_account(account_id)
+            use_checkbox.setChecked(bool(enabled))
+            url_entry.setText(ext_url)
+            text_entry.setText(ext_text)
+            url_entry.setEnabled(bool(enabled))
+            text_entry.setEnabled(bool(enabled))
+
+            def _on_toggle(state, url_widget=url_entry, text_widget=text_entry):
+                active = bool(state)
+                url_widget.setEnabled(active)
+                text_widget.setEnabled(active)
+
+            use_checkbox.toggled.connect(_on_toggle)
+
+            inputs_row.addWidget(use_checkbox, 0)
+            inputs_row.addWidget(url_entry, 1)
+            inputs_row.addWidget(text_entry, 1)
+            row_layout.addLayout(inputs_row)
+
+            layout.addWidget(row_frame)
+            self.account_inputs.append((account_id, use_checkbox, url_entry, text_entry))
+            visible_row_count += 1
+
+        if not self.account_inputs:
+            empty_label = QLabel("등록된 네이버 계정이 없습니다. 먼저 계정 정보를 저장해주세요.")
+            empty_label.setStyleSheet(f"color: {NAVER_RED}; font-weight: bold;")
+            layout.addWidget(empty_label)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 6, 0, 0)
+        footer.setSpacing(8)
+        info_label = QLabel("네이버 계정별 외부 링크 사용 여부/URL/앵커 텍스트를 저장합니다.")
+        info_label.setStyleSheet(f"color: {NAVER_TEXT_SUB};")
+        footer.addWidget(info_label)
+        footer.addStretch()
+
+        save_btn = QPushButton("저장 후 닫기")
+        save_btn.setStyleSheet(f"background-color: {NAVER_GREEN};")
+        save_btn.setFixedHeight(36)
+        save_btn.clicked.connect(self.save_and_close)
+        footer.addWidget(save_btn)
+        layout.addLayout(footer)
+
+        row_count = max(visible_row_count, 1)
+        target_height = 46 + (row_count * 86) + 62
+        target_height = max(180, min(target_height, 560))
+        self.setFixedHeight(target_height)
+
+    def save_and_close(self):
+        settings_map = {}
+        for account_id, use_checkbox, url_entry, text_entry in self.account_inputs:
+            enabled = bool(use_checkbox.isChecked())
+            settings_map[account_id] = {
+                "use_external_link": enabled,
+                "external_link": url_entry.text().strip(),
+                "external_link_text": text_entry.text().strip(),
+            }
+        self.parent._save_external_link_account_settings(settings_map)
+        self.accept()
+
 
 class NaverBlogGUI(QMainWindow):
     """네이버 블로그 자동 포스팅 GUI 메인 클래스"""
@@ -9365,6 +9509,25 @@ class NaverBlogGUI(QMainWindow):
         checkbox_layout.addWidget(self.link_status_label)
         
         link_card.header.layout().insertWidget(1, checkbox_container)
+        external_link_account_btn = QPushButton("👤 계정별 설정")
+        external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        external_link_account_btn.setMinimumHeight(30)
+        external_link_account_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                border: 2px solid {NAVER_GREEN};
+                border-radius: 8px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_GREEN_LIGHT};
+            }}
+        """)
+        external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
+        link_card.header.layout().insertWidget(2, external_link_account_btn)
         
         # 공백 유지를 위한 더미 위젯 (항상 표시)
         link_card.header.layout().addStretch()
@@ -10374,6 +10537,7 @@ class NaverBlogGUI(QMainWindow):
                 self.monitor_naver_account_selector.setCurrentIndex(active_slot)
             self.monitor_naver_account_selector.blockSignals(False)
 
+        self._apply_external_link_ui_for_account(self.config.get("naver_id", ""))
         self._apply_related_posts_ui_for_account(self.config.get("naver_id", ""))
 
     def on_naver_account_selector_changed(self, index):
@@ -10465,6 +10629,75 @@ class NaverBlogGUI(QMainWindow):
                 }
         self.config["related_posts_account_settings"] = normalized
         self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
+        self.save_config_file()
+        self.update_status_display()
+        self._update_settings_summary()
+
+    def _get_external_link_account_settings(self):
+        raw = self.config.get("external_link_account_settings", {})
+        if not isinstance(raw, dict):
+            return {}
+        cleaned = {}
+        for account_id, item in raw.items():
+            key = str(account_id).strip()
+            if not key or not isinstance(item, dict):
+                continue
+            cleaned[key] = {
+                "use_external_link": bool(item.get("use_external_link", False)),
+                "external_link": str(item.get("external_link", "")).strip(),
+                "external_link_text": str(item.get("external_link_text", "")).strip(),
+            }
+        return cleaned
+
+    def _get_external_link_values_for_account(self, account_id):
+        account_id = str(account_id or "").strip()
+        base_use = bool(self.config.get("use_external_link", False))
+        base_link = str(self.config.get("external_link", "")).strip()
+        base_text = str(self.config.get("external_link_text", "")).strip()
+
+        if not account_id:
+            return base_use, base_link, base_text
+
+        account_map = self._get_external_link_account_settings()
+        item = account_map.get(account_id)
+        if not isinstance(item, dict):
+            return base_use, base_link, base_text
+
+        use_external_link = bool(item.get("use_external_link", base_use))
+        external_link = str(item.get("external_link", "")).strip() or base_link
+        external_link_text = str(item.get("external_link_text", "")).strip() or base_text
+        return use_external_link, external_link, external_link_text
+
+    def _apply_external_link_ui_for_account(self, account_id):
+        if not hasattr(self, "use_link_checkbox") or not hasattr(self, "link_url_entry") or not hasattr(self, "link_text_entry"):
+            return
+
+        enabled, external_link, external_link_text = self._get_external_link_values_for_account(account_id)
+        self.use_link_checkbox.blockSignals(True)
+        self.use_link_checkbox.setChecked(bool(enabled))
+        self.use_link_checkbox.blockSignals(False)
+        self.link_url_entry.setText(external_link)
+        self.link_text_entry.setText(external_link_text)
+
+        self.config["use_external_link"] = bool(enabled)
+        self.config["external_link"] = external_link
+        self.config["external_link_text"] = external_link_text
+        self.toggle_external_link()
+
+    def _save_external_link_account_settings(self, settings_map):
+        normalized = {}
+        if isinstance(settings_map, dict):
+            for account_id, item in settings_map.items():
+                key = str(account_id).strip()
+                if not key or not isinstance(item, dict):
+                    continue
+                normalized[key] = {
+                    "use_external_link": bool(item.get("use_external_link", False)),
+                    "external_link": str(item.get("external_link", "")).strip(),
+                    "external_link_text": str(item.get("external_link_text", "")).strip(),
+                }
+        self.config["external_link_account_settings"] = normalized
+        self._apply_external_link_ui_for_account(self._selected_naver_account_id())
         self.save_config_file()
         self.update_status_display()
         self._update_settings_summary()
@@ -10642,6 +10875,11 @@ class NaverBlogGUI(QMainWindow):
         if dialog.exec():
             self._update_settings_status("✅ 계정별 관련 글 설정이 반영되었습니다.")
 
+    def open_external_link_accounts_dialog(self):
+        dialog = ExternalLinkAccountDialog(self)
+        if dialog.exec():
+            self._update_settings_status("✅ 계정별 외부 링크 설정이 반영되었습니다.")
+
     def open_website_login_dialog(self):
         """웹사이트 로그인 정보 입력 다이얼로그 열기"""
         dialog = WebsiteLoginDialog(self)
@@ -10710,13 +10948,8 @@ class NaverBlogGUI(QMainWindow):
             self.interval_start_entry.setText(str(start))
             self.interval_end_entry.setText(str(end))
         
-        # 외부 링크
-        if self.config.get("use_external_link"):
-            self.use_link_checkbox.setChecked(True)
-        if "external_link" in self.config:
-            self.link_url_entry.setText(self.config["external_link"])
-        if "external_link_text" in self.config:
-            self.link_text_entry.setText(self.config["external_link_text"])
+        # 외부 링크 (계정별 설정 우선)
+        self._apply_external_link_ui_for_account(self._selected_naver_account_id())
         
         # 함께 보면 좋은 글 설정
         if "related_posts_enabled" in self.config:
@@ -11701,9 +11934,24 @@ class NaverBlogGUI(QMainWindow):
     
     def save_link_settings(self):
         """링크 설정 저장"""
-        self.config["use_external_link"] = self.use_link_checkbox.isChecked()
-        self.config["external_link"] = self.link_url_entry.text().strip()
-        self.config["external_link_text"] = self.link_text_entry.text().strip()
+        enabled = self.use_link_checkbox.isChecked()
+        external_link = self.link_url_entry.text().strip()
+        external_link_text = self.link_text_entry.text().strip()
+
+        self.config["use_external_link"] = enabled
+        self.config["external_link"] = external_link
+        self.config["external_link_text"] = external_link_text
+
+        account_id = self._selected_naver_account_id()
+        if account_id:
+            account_map = self._get_external_link_account_settings()
+            account_map[account_id] = {
+                "use_external_link": bool(enabled),
+                "external_link": external_link,
+                "external_link_text": external_link_text,
+            }
+            self.config["external_link_account_settings"] = account_map
+
         status = "ON" if self.use_link_checkbox.isChecked() else "OFF"
         self._update_settings_status(f"🔗 외부 링크 설정이 저장되었습니다 (상태: {status})")
         self.save_config_file()
@@ -11906,11 +12154,15 @@ class NaverBlogGUI(QMainWindow):
                     related_posts_title, blog_address = self._get_related_posts_values_for_account(cycle_naver_id)
                     self.config["related_posts_title"] = related_posts_title
                     self.config["blog_address"] = blog_address
+                    use_external_link, account_external_link, account_external_link_text = self._get_external_link_values_for_account(cycle_naver_id)
+                    self.config["use_external_link"] = bool(use_external_link)
+                    self.config["external_link"] = account_external_link
+                    self.config["external_link_text"] = account_external_link_text
                     self.update_progress_status(f"👤 작업 계정: 계정 {slot_idx + 1} ({cycle_naver_id})")
                     self.ui_refresh_status_signal.emit()
                     
-                    external_link = self.link_url_entry.text() if self.use_link_checkbox.isChecked() else ""
-                    external_link_text = self.link_text_entry.text() if self.use_link_checkbox.isChecked() else ""
+                    external_link = account_external_link if use_external_link else ""
+                    external_link_text = account_external_link_text if use_external_link else ""
                     
                     # 자동화 인스턴스가 없을 때만 생성 (기존 브라우저 재사용)
                     if not self.automation:
