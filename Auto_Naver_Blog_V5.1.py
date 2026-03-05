@@ -352,6 +352,15 @@ def _read_keyword_lines(path):
     except Exception:
         return []
 
+def _resolve_source_used_keyword_log_path(source_path):
+    safe_source = str(source_path or "").strip()
+    if not safe_source:
+        return ""
+    base_name = os.path.basename(safe_source)
+    if not base_name.lower().endswith(".txt"):
+        base_name = f"{base_name}.txt"
+    return os.path.join(os.path.dirname(safe_source), f"used_{base_name}")
+
 def _sync_account_keywords_from_source(base_dir, account_id):
     """
     연결된 원본 키워드 파일이 바뀐 경우 계정 전용 keywords.txt를 자동 동기화한다.
@@ -388,6 +397,9 @@ def _sync_account_keywords_from_source(base_dir, account_id):
     used_set = set(_read_keyword_lines(used_keywords_file))
     if os.path.abspath(legacy_used_file) != os.path.abspath(used_keywords_file):
         used_set.update(_read_keyword_lines(legacy_used_file))
+    source_used_file = _resolve_source_used_keyword_log_path(source_path)
+    if source_used_file and os.path.isfile(source_used_file):
+        used_set.update(_read_keyword_lines(source_used_file))
 
     filtered_keywords = [kw for kw in source_keywords if kw not in used_set]
     current_keywords = _read_keyword_lines(keywords_file)
@@ -1760,6 +1772,8 @@ class NaverBlogAutomation:
         """키워드를 keywords.txt에서 제거하고 used_<선택파일명>.txt로 이동"""
         keywords_file, _ = _resolve_account_keyword_paths(self.data_dir, self.naver_id, create=True)
         used_keywords_file = _resolve_used_keyword_log_path(self.data_dir, self.naver_id, create=True)
+        source_keywords_file = _find_keyword_source_path(self.data_dir, self.naver_id)
+        source_used_file = _resolve_source_used_keyword_log_path(source_keywords_file)
         
         # 파일 작업 재시도 로직
         max_retries = 3
@@ -1785,6 +1799,28 @@ class NaverBlogAutomation:
                 # used_<원본파일명>.txt에 추가
                 with open(used_keywords_file, 'a', encoding='utf-8') as f:
                     f.write(keyword + '\n')
+
+                # 원본 키워드 파일에도 동일하게 반영 (실시간 외부 파일 편집 흐름 대응)
+                try:
+                    if source_keywords_file and os.path.isfile(source_keywords_file):
+                        same_target = False
+                        try:
+                            same_target = os.path.samefile(source_keywords_file, keywords_file)
+                        except Exception:
+                            same_target = (
+                                os.path.abspath(source_keywords_file) == os.path.abspath(keywords_file)
+                            )
+                        if not same_target:
+                            source_keywords = _read_keyword_lines(source_keywords_file)
+                            source_remaining = [kw for kw in source_keywords if kw != keyword]
+                            with open(source_keywords_file, 'w', encoding='utf-8') as src_f:
+                                for kw in source_remaining:
+                                    src_f.write(kw + '\n')
+                        if source_used_file:
+                            with open(source_used_file, 'a', encoding='utf-8') as src_used_f:
+                                src_used_f.write(keyword + '\n')
+                except Exception:
+                    pass
                 
                 self._update_status(f"✅ 키워드 '{keyword}'를 사용 완료 목록으로 이동")
                 print(f"✅ 키워드 이동 성공: '{keyword}' (남은 키워드: {len(remaining_keywords)}개)")
