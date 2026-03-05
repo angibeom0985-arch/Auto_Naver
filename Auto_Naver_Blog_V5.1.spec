@@ -63,9 +63,12 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX 압축이 걸리면 백신/인덱서가 임시 파일을 오래 잡아
+    # _MEI 임시폴더 정리 실패 경고가 늘어날 수 있어 비활성화
+    upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
+    # onefile 임시 압축 해제 경로를 전용 폴더로 고정해 정리 실패 경고를 완화
+    runtime_tmpdir=r"%LOCALAPPDATA%\Auto_Naver\_pyi_runtime",
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
