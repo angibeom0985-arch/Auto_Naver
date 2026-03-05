@@ -8060,7 +8060,8 @@ class ExternalLinkAccountDialog(QDialog):
             text_entry.setPlaceholderText("더 알아보기")
             text_entry.setFixedHeight(34)
 
-            enabled, ext_url, ext_text = self.parent._get_external_link_values_for_account(account_id)
+            enabled, ext_links, ext_text, _ext_mode = self.parent._get_external_link_values_for_account(account_id)
+            ext_url = ext_links[0] if ext_links else ""
             use_checkbox.setChecked(bool(enabled))
             url_entry.setText(ext_url)
             text_entry.setText(ext_text)
@@ -8112,9 +8113,12 @@ class ExternalLinkAccountDialog(QDialog):
         settings_map = {}
         for account_id, use_checkbox, url_entry, text_entry in self.account_inputs:
             enabled = bool(use_checkbox.isChecked())
+            link_value = url_entry.text().strip()
             settings_map[account_id] = {
                 "use_external_link": enabled,
-                "external_link": url_entry.text().strip(),
+                "external_link": link_value,
+                "external_links": [link_value] if link_value else [],
+                "external_link_mode": "sequential",
                 "external_link_text": text_entry.text().strip(),
             }
         self.parent._save_external_link_account_settings(settings_map)
@@ -8486,8 +8490,17 @@ class NaverBlogGUI(QMainWindow):
             else:
                 self.config["interval"] = "10"
             self.config["use_external_link"] = self.use_link_checkbox.isChecked()
-            self.config["external_link"] = self.link_url_entry.text()
-            self.config["external_link_text"] = self.link_text_entry.text()
+            refresh_link = self.link_url_entry.text().strip()
+            refresh_links = self._parse_external_links_text(
+                self.link_urls_entry.toPlainText() if hasattr(self, "link_urls_entry") else "",
+                fallback_link=refresh_link,
+            )
+            self.config["external_link"] = refresh_links[0] if refresh_links else refresh_link
+            self.config["external_links"] = refresh_links
+            self.config["external_link_mode"] = self._normalize_external_link_mode(
+                self.link_insert_mode_combo.currentData() if hasattr(self, "link_insert_mode_combo") else "sequential"
+            )
+            self.config["external_link_text"] = self.link_text_entry.text().strip()
             if hasattr(self, "posting_home_radio") and self.posting_home_radio.isChecked():
                 self.config["posting_method"] = "home"
             else:
@@ -9587,6 +9600,61 @@ class NaverBlogGUI(QMainWindow):
         self.link_url_entry.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
         self.link_url_entry.focusInEvent = lambda e: self._clear_example_text(self.link_url_entry, "https://example.com") if self.link_url_entry.isEnabled() else None
         url_layout.addWidget(self.link_url_entry)
+
+        link_url_control_row = QHBoxLayout()
+        link_url_control_row.setContentsMargins(0, 0, 0, 0)
+        link_url_control_row.setSpacing(8)
+        self.link_add_btn = QPushButton("＋ 추가")
+        self.link_add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.link_add_btn.setMinimumHeight(28)
+        self.link_add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {NAVER_GREEN};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_GREEN_HOVER};
+            }}
+        """)
+        self.link_add_btn.clicked.connect(self.add_external_link_url)
+        link_url_control_row.addWidget(self.link_add_btn, 0)
+
+        mode_label = PremiumCard.create_section_label("삽입 방식", self.font_family)
+        link_url_control_row.addWidget(mode_label, 0)
+        self.link_insert_mode_combo = QComboBox()
+        self.link_insert_mode_combo.addItem("순차", "sequential")
+        self.link_insert_mode_combo.addItem("랜덤", "random")
+        self.link_insert_mode_combo.setMinimumHeight(28)
+        link_url_control_row.addWidget(self.link_insert_mode_combo, 1)
+        url_layout.addLayout(link_url_control_row)
+
+        self.link_urls_entry = QTextEdit()
+        self.link_urls_entry.setPlaceholderText("등록된 링크 URL 목록 (한 줄에 하나씩)\n예) https://example1.com")
+        self.link_urls_entry.setMinimumHeight(84)
+        self.link_urls_entry.setEnabled(False)
+        self.link_urls_entry.setStyleSheet(f"""
+            QTextEdit {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 10px;
+                padding: 6px 10px;
+                background-color: {NAVER_BG};
+                color: {NAVER_TEXT_SUB};
+                font-size: 12px;
+            }}
+            QTextEdit:enabled {{
+                background-color: white;
+                color: {NAVER_TEXT};
+            }}
+            QTextEdit:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+        """)
+        url_layout.addWidget(self.link_urls_entry)
         link_grid.addWidget(url_widget, 0, 0)
         
         text_widget = QWidget()
@@ -10340,6 +10408,7 @@ class NaverBlogGUI(QMainWindow):
             self.blog_address_entry,
         ):
             widget.textChanged.connect(_refresh_settings_status)
+        self.link_urls_entry.textChanged.connect(_refresh_settings_status)
 
         for radio in (
             self.gemini_api_radio,
@@ -10353,6 +10422,7 @@ class NaverBlogGUI(QMainWindow):
             radio.toggled.connect(_refresh_settings_status)
 
         self.use_link_checkbox.stateChanged.connect(_refresh_settings_status)
+        self.link_insert_mode_combo.currentIndexChanged.connect(_refresh_settings_status)
         self.use_related_posts_checkbox.stateChanged.connect(_refresh_settings_status)
         if self.thumbnail_toggle_btn is not None:
             self.thumbnail_toggle_btn.clicked.connect(_refresh_settings_status)
@@ -10652,6 +10722,68 @@ class NaverBlogGUI(QMainWindow):
         self.update_status_display()
         self._update_settings_summary()
 
+    @staticmethod
+    def _normalize_external_link_mode(mode_value):
+        mode = str(mode_value or "").strip().lower()
+        return mode if mode in ("sequential", "random") else "sequential"
+
+    def _normalize_external_links(self, links, fallback_link=""):
+        normalized = []
+        seen = set()
+        if isinstance(links, str):
+            links = [links]
+        if isinstance(links, (list, tuple, set)):
+            for item in links:
+                url = str(item or "").strip()
+                if not url:
+                    continue
+                key = url.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized.append(url)
+        fallback = str(fallback_link or "").strip()
+        if not normalized and fallback:
+            normalized.append(fallback)
+        return normalized
+
+    def _parse_external_links_text(self, raw_text, fallback_link=""):
+        raw = str(raw_text or "").replace("\r", "\n")
+        parts = []
+        for line in raw.split("\n"):
+            for piece in line.split(","):
+                token = piece.strip()
+                if token:
+                    parts.append(token)
+        return self._normalize_external_links(parts, fallback_link=fallback_link)
+
+    @staticmethod
+    def _external_links_to_text(links):
+        if not isinstance(links, (list, tuple)):
+            return ""
+        return "\n".join(str(x or "").strip() for x in links if str(x or "").strip())
+
+    def _choose_external_link_for_account(self, account_id, links, mode):
+        candidates = self._normalize_external_links(links)
+        if not candidates:
+            return ""
+        normalized_mode = self._normalize_external_link_mode(mode)
+        if normalized_mode == "random":
+            return random.choice(candidates)
+
+        key = str(account_id or "").strip() or "__default__"
+        state_map = self.config.get("external_link_rotation_index", {})
+        if not isinstance(state_map, dict):
+            state_map = {}
+        try:
+            idx = int(state_map.get(key, 0))
+        except Exception:
+            idx = 0
+        chosen = candidates[idx % len(candidates)]
+        state_map[key] = (idx + 1) % len(candidates)
+        self.config["external_link_rotation_index"] = state_map
+        return chosen
+
     def _get_external_link_account_settings(self):
         raw = self.config.get("external_link_account_settings", {})
         if not isinstance(raw, dict):
@@ -10661,9 +10793,14 @@ class NaverBlogGUI(QMainWindow):
             key = str(account_id).strip()
             if not key or not isinstance(item, dict):
                 continue
+            link = str(item.get("external_link", "")).strip()
+            links = self._normalize_external_links(item.get("external_links", []), fallback_link=link)
+            mode = self._normalize_external_link_mode(item.get("external_link_mode", "sequential"))
             cleaned[key] = {
                 "use_external_link": bool(item.get("use_external_link", False)),
-                "external_link": str(item.get("external_link", "")).strip(),
+                "external_link": links[0] if links else link,
+                "external_links": links,
+                "external_link_mode": mode,
                 "external_link_text": str(item.get("external_link_text", "")).strip(),
             }
         return cleaned
@@ -10672,34 +10809,48 @@ class NaverBlogGUI(QMainWindow):
         account_id = str(account_id or "").strip()
         base_use = bool(self.config.get("use_external_link", False))
         base_link = str(self.config.get("external_link", "")).strip()
+        base_links = self._normalize_external_links(self.config.get("external_links", []), fallback_link=base_link)
+        base_mode = self._normalize_external_link_mode(self.config.get("external_link_mode", "sequential"))
         base_text = str(self.config.get("external_link_text", "")).strip()
 
         if not account_id:
-            return base_use, base_link, base_text
+            return base_use, base_links, base_text, base_mode
 
         account_map = self._get_external_link_account_settings()
         item = account_map.get(account_id)
         if not isinstance(item, dict):
-            return base_use, base_link, base_text
+            return base_use, base_links, base_text, base_mode
 
         use_external_link = bool(item.get("use_external_link", base_use))
-        external_link = str(item.get("external_link", "")).strip() or base_link
+        external_links = self._normalize_external_links(
+            item.get("external_links", []),
+            fallback_link=str(item.get("external_link", "")).strip() or (base_links[0] if base_links else ""),
+        ) or base_links
+        external_link_mode = self._normalize_external_link_mode(item.get("external_link_mode", base_mode))
         external_link_text = str(item.get("external_link_text", "")).strip() or base_text
-        return use_external_link, external_link, external_link_text
+        return use_external_link, external_links, external_link_text, external_link_mode
 
     def _apply_external_link_ui_for_account(self, account_id):
         if not hasattr(self, "use_link_checkbox") or not hasattr(self, "link_url_entry") or not hasattr(self, "link_text_entry"):
             return
 
-        enabled, external_link, external_link_text = self._get_external_link_values_for_account(account_id)
+        enabled, external_links, external_link_text, external_link_mode = self._get_external_link_values_for_account(account_id)
+        primary_link = external_links[0] if external_links else ""
         self.use_link_checkbox.blockSignals(True)
         self.use_link_checkbox.setChecked(bool(enabled))
         self.use_link_checkbox.blockSignals(False)
-        self.link_url_entry.setText(external_link)
+        self.link_url_entry.setText(primary_link)
         self.link_text_entry.setText(external_link_text)
+        if hasattr(self, "link_urls_entry"):
+            self.link_urls_entry.setPlainText(self._external_links_to_text(external_links))
+        if hasattr(self, "link_insert_mode_combo"):
+            idx = self.link_insert_mode_combo.findData(external_link_mode)
+            self.link_insert_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         self.config["use_external_link"] = bool(enabled)
-        self.config["external_link"] = external_link
+        self.config["external_link"] = primary_link
+        self.config["external_links"] = external_links
+        self.config["external_link_mode"] = external_link_mode
         self.config["external_link_text"] = external_link_text
         self.toggle_external_link()
 
@@ -10710,9 +10861,14 @@ class NaverBlogGUI(QMainWindow):
                 key = str(account_id).strip()
                 if not key or not isinstance(item, dict):
                     continue
+                link = str(item.get("external_link", "")).strip()
+                links = self._normalize_external_links(item.get("external_links", []), fallback_link=link)
+                mode = self._normalize_external_link_mode(item.get("external_link_mode", "sequential"))
                 normalized[key] = {
                     "use_external_link": bool(item.get("use_external_link", False)),
-                    "external_link": str(item.get("external_link", "")).strip(),
+                    "external_link": links[0] if links else link,
+                    "external_links": links,
+                    "external_link_mode": mode,
                     "external_link_text": str(item.get("external_link_text", "")).strip(),
                 }
         self.config["external_link_account_settings"] = normalized
@@ -11458,6 +11614,12 @@ class NaverBlogGUI(QMainWindow):
         # 활성화 상태 설정
         self.link_url_entry.setEnabled(enabled)
         self.link_text_entry.setEnabled(enabled)
+        if hasattr(self, "link_urls_entry"):
+            self.link_urls_entry.setEnabled(enabled)
+        if hasattr(self, "link_insert_mode_combo"):
+            self.link_insert_mode_combo.setEnabled(enabled)
+        if hasattr(self, "link_add_btn"):
+            self.link_add_btn.setEnabled(enabled)
         
         # ON/OFF 라벨 업데이트
         if enabled:
@@ -11488,6 +11650,20 @@ class NaverBlogGUI(QMainWindow):
                 }}
             """)
             self._update_settings_status("🔗 외부 링크 기능 OFF")
+
+    def add_external_link_url(self):
+        """외부 링크 URL 목록에 현재 입력 URL을 추가"""
+        if not hasattr(self, "link_url_entry") or not hasattr(self, "link_urls_entry"):
+            return
+        new_url = self.link_url_entry.text().strip()
+        if not new_url:
+            self._show_auto_close_message("⚠️ 추가할 링크 URL을 입력해주세요", QMessageBox.Icon.Warning)
+            return
+        links = self._parse_external_links_text(self.link_urls_entry.toPlainText(), fallback_link="")
+        links = self._normalize_external_links(links + [new_url])
+        self.link_urls_entry.setPlainText(self._external_links_to_text(links))
+        self.link_url_entry.setText(new_url)
+        self._update_settings_status(f"🔗 외부 링크 URL이 추가되었습니다 ({len(links)}개)")
 
     def toggle_related_posts(self):
         """관련 글 활성화/비활성화"""
@@ -11955,10 +12131,19 @@ class NaverBlogGUI(QMainWindow):
         """링크 설정 저장"""
         enabled = self.use_link_checkbox.isChecked()
         external_link = self.link_url_entry.text().strip()
+        external_links = self._parse_external_links_text(
+            self.link_urls_entry.toPlainText() if hasattr(self, "link_urls_entry") else "",
+            fallback_link=external_link,
+        )
+        external_link_mode = self._normalize_external_link_mode(
+            self.link_insert_mode_combo.currentData() if hasattr(self, "link_insert_mode_combo") else "sequential"
+        )
         external_link_text = self.link_text_entry.text().strip()
 
         self.config["use_external_link"] = enabled
-        self.config["external_link"] = external_link
+        self.config["external_link"] = external_links[0] if external_links else external_link
+        self.config["external_links"] = external_links
+        self.config["external_link_mode"] = external_link_mode
         self.config["external_link_text"] = external_link_text
 
         account_id = self._selected_naver_account_id()
@@ -11966,7 +12151,9 @@ class NaverBlogGUI(QMainWindow):
             account_map = self._get_external_link_account_settings()
             account_map[account_id] = {
                 "use_external_link": bool(enabled),
-                "external_link": external_link,
+                "external_link": external_links[0] if external_links else external_link,
+                "external_links": external_links,
+                "external_link_mode": external_link_mode,
                 "external_link_text": external_link_text,
             }
             self.config["external_link_account_settings"] = account_map
@@ -12175,14 +12362,21 @@ class NaverBlogGUI(QMainWindow):
                     self.config["related_posts_enabled"] = bool(related_posts_enabled)
                     self.config["related_posts_title"] = related_posts_title
                     self.config["blog_address"] = blog_address
-                    use_external_link, account_external_link, account_external_link_text = self._get_external_link_values_for_account(cycle_naver_id)
+                    use_external_link, account_external_links, account_external_link_text, account_external_link_mode = self._get_external_link_values_for_account(cycle_naver_id)
+                    selected_external_link = self._choose_external_link_for_account(
+                        cycle_naver_id,
+                        account_external_links,
+                        account_external_link_mode,
+                    )
                     self.config["use_external_link"] = bool(use_external_link)
-                    self.config["external_link"] = account_external_link
+                    self.config["external_link"] = selected_external_link
+                    self.config["external_links"] = account_external_links
+                    self.config["external_link_mode"] = account_external_link_mode
                     self.config["external_link_text"] = account_external_link_text
                     self.update_progress_status(f"👤 작업 계정: 계정 {slot_idx + 1} ({cycle_naver_id})")
                     self.ui_refresh_status_signal.emit()
                     
-                    external_link = account_external_link if use_external_link else ""
+                    external_link = selected_external_link if use_external_link else ""
                     external_link_text = account_external_link_text if use_external_link else ""
                     
                     # 자동화 인스턴스가 없을 때만 생성 (기존 브라우저 재사용)
