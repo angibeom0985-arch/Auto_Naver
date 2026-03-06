@@ -10,7 +10,6 @@ import io
 import locale
 import json
 import os
-import hashlib
 import threading
 import ctypes
 import pyperclip
@@ -170,65 +169,53 @@ def _resolve_runtime_data_dir():
     os.makedirs(os.path.join(fallback_path, "setting"), exist_ok=True)
     return fallback_path, fallback_source
 
-def _get_account_resource_root(base_dir, account_id, create=False):
-    root = os.path.join(base_dir, "setting", "accounts", _account_resource_key(account_id))
+def _resolve_account_binding_meta_dir(base_dir, account_id, create=False):
+    root = os.path.join(base_dir, "setting", "account_bindings", _account_resource_key(account_id))
     if create:
         os.makedirs(root, exist_ok=True)
     return root
 
-def _resolve_account_keyword_paths(base_dir, account_id, create=False):
-    import shutil
-
-    account_root = _get_account_resource_root(base_dir, account_id, create=create)
-    keyword_dir = os.path.join(account_root, "keywords")
+def _resolve_shared_keyword_paths(base_dir, create=False):
+    keyword_dir = os.path.join(base_dir, "setting", "keywords")
     keywords_file = os.path.join(keyword_dir, "keywords.txt")
     used_keywords_file = os.path.join(keyword_dir, "used_keywords.txt")
-
     if create:
         os.makedirs(keyword_dir, exist_ok=True)
-        legacy_keyword = os.path.join(base_dir, "setting", "keywords", "keywords.txt")
-        legacy_used = os.path.join(base_dir, "setting", "keywords", "used_keywords.txt")
-
         if not os.path.exists(keywords_file):
-            if os.path.exists(legacy_keyword):
-                try:
-                    shutil.copy2(legacy_keyword, keywords_file)
-                except Exception:
-                    pass
-            if not os.path.exists(keywords_file):
-                try:
-                    with open(keywords_file, "w", encoding="utf-8") as f:
-                        f.write("# 키워드를 한 줄에 하나씩 입력하세요\n")
-                except Exception:
-                    pass
-
+            try:
+                with open(keywords_file, "w", encoding="utf-8") as f:
+                    f.write("# 키워드를 한 줄에 하나씩 입력하세요\n")
+            except Exception:
+                pass
         if not os.path.exists(used_keywords_file):
-            if os.path.exists(legacy_used):
-                try:
-                    shutil.copy2(legacy_used, used_keywords_file)
-                except Exception:
+            try:
+                with open(used_keywords_file, "a", encoding="utf-8"):
                     pass
-            if not os.path.exists(used_keywords_file):
-                try:
-                    with open(used_keywords_file, "a", encoding="utf-8"):
-                        pass
-                except Exception:
-                    pass
+            except Exception:
+                pass
     return keywords_file, used_keywords_file
 
+def _resolve_account_keyword_paths(base_dir, account_id, create=False):
+    shared_keywords_file, shared_used_file = _resolve_shared_keyword_paths(base_dir, create=create)
+    source_path = _read_keyword_source_path(base_dir, account_id)
+    if source_path and os.path.isfile(source_path):
+        used_keywords_file = _resolve_source_used_keyword_log_path(source_path) or shared_used_file
+        if create:
+            try:
+                with open(used_keywords_file, "a", encoding="utf-8"):
+                    pass
+            except Exception:
+                pass
+        return source_path, used_keywords_file
+    return shared_keywords_file, shared_used_file
+
 def _resolve_keyword_source_meta_path(base_dir, account_id, create=False):
-    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
-    keyword_dir = os.path.dirname(keywords_file)
-    if create:
-        os.makedirs(keyword_dir, exist_ok=True)
-    return os.path.join(keyword_dir, "keywords_source_name.txt")
+    meta_dir = _resolve_account_binding_meta_dir(base_dir, account_id, create=create)
+    return os.path.join(meta_dir, "keywords_source_name.txt")
 
 def _resolve_keyword_source_path_meta_path(base_dir, account_id, create=False):
-    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
-    keyword_dir = os.path.dirname(keywords_file)
-    if create:
-        os.makedirs(keyword_dir, exist_ok=True)
-    return os.path.join(keyword_dir, "keywords_source_path.txt")
+    meta_dir = _resolve_account_binding_meta_dir(base_dir, account_id, create=create)
+    return os.path.join(meta_dir, "keywords_source_path.txt")
 
 def _read_keyword_source_name(base_dir, account_id):
     meta_path = _resolve_keyword_source_meta_path(base_dir, account_id, create=False)
@@ -319,11 +306,6 @@ def _find_keyword_source_path(base_dir, account_id):
             search_dirs.append(saved_dir)
     search_dirs.append(os.path.join(base_dir, "setting", "keywords"))
 
-    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=True)
-    account_keyword_dir = os.path.dirname(keywords_file)
-    if account_keyword_dir:
-        search_dirs.append(account_keyword_dir)
-
     seen_dirs = set()
     unique_search_dirs = []
     for d in search_dirs:
@@ -350,14 +332,11 @@ def _find_keyword_source_path(base_dir, account_id):
     return ""
 
 def _resolve_used_keyword_log_path(base_dir, account_id, create=False):
-    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
-    keyword_dir = os.path.dirname(keywords_file)
-    source_name = _read_keyword_source_name(base_dir, account_id)
-    source_name = os.path.basename(source_name) if source_name else "keywords.txt"
-    if not source_name.lower().endswith(".txt"):
-        source_name = f"{source_name}.txt"
-    used_name = f"used_{source_name}"
-    used_path = os.path.join(keyword_dir, used_name)
+    _, shared_used_path = _resolve_shared_keyword_paths(base_dir, create=create)
+    source_path = _find_keyword_source_path(base_dir, account_id)
+    used_path = _resolve_source_used_keyword_log_path(source_path) if source_path else ""
+    if not used_path:
+        used_path = shared_used_path
     if create:
         try:
             if not os.path.exists(used_path):
@@ -368,11 +347,8 @@ def _resolve_used_keyword_log_path(base_dir, account_id, create=False):
     return used_path
 
 def _resolve_keyword_source_sync_meta_path(base_dir, account_id, create=False):
-    keywords_file, _ = _resolve_account_keyword_paths(base_dir, account_id, create=create)
-    keyword_dir = os.path.dirname(keywords_file)
-    if create:
-        os.makedirs(keyword_dir, exist_ok=True)
-    return os.path.join(keyword_dir, "keywords_source_sync_sig.txt")
+    meta_dir = _resolve_account_binding_meta_dir(base_dir, account_id, create=create)
+    return os.path.join(meta_dir, "keywords_source_sync_sig.txt")
 
 def _read_keyword_source_sync_sig(base_dir, account_id):
     meta_path = _resolve_keyword_source_sync_meta_path(base_dir, account_id, create=False)
@@ -469,42 +445,18 @@ def _sync_account_keywords_from_source(base_dir, account_id):
     return True
 
 def _resolve_account_thumbnail_dir(base_dir, account_id, create=False):
-    import shutil
-
-    account_root = _get_account_resource_root(base_dir, account_id, create=create)
-    thumbnail_dir = os.path.join(account_root, "image")
+    thumbnail_dir = os.path.join(base_dir, "setting", "image")
     if create:
         os.makedirs(thumbnail_dir, exist_ok=True)
-        legacy_dir = os.path.join(base_dir, "setting", "image")
-        try:
-            has_seed_file = any(
-                n.lower().endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc"))
-                for n in os.listdir(thumbnail_dir)
-            )
-        except Exception:
-            has_seed_file = False
-
-        if (not has_seed_file) and os.path.isdir(legacy_dir):
-            try:
-                for name in os.listdir(legacy_dir):
-                    lower = name.lower()
-                    if not lower.endswith((".jpg", ".jpeg", ".ttf", ".otf", ".ttc")):
-                        continue
-                    src = os.path.join(legacy_dir, name)
-                    dst = os.path.join(thumbnail_dir, name)
-                    if os.path.isfile(src) and not os.path.exists(dst):
-                        shutil.copy2(src, dst)
-            except Exception:
-                pass
     return thumbnail_dir
 
 def _resolve_thumbnail_source_name_meta_path(base_dir, account_id, create=False):
-    thumbnail_dir = _resolve_account_thumbnail_dir(base_dir, account_id, create=create)
-    return os.path.join(thumbnail_dir, "thumbnail_source_name.txt")
+    meta_dir = _resolve_account_binding_meta_dir(base_dir, account_id, create=create)
+    return os.path.join(meta_dir, "thumbnail_source_name.txt")
 
 def _resolve_thumbnail_source_path_meta_path(base_dir, account_id, create=False):
-    thumbnail_dir = _resolve_account_thumbnail_dir(base_dir, account_id, create=create)
-    return os.path.join(thumbnail_dir, "thumbnail_source_path.txt")
+    meta_dir = _resolve_account_binding_meta_dir(base_dir, account_id, create=create)
+    return os.path.join(meta_dir, "thumbnail_source_path.txt")
 
 def _read_thumbnail_source_name(base_dir, account_id):
     meta_path = _resolve_thumbnail_source_name_meta_path(base_dir, account_id, create=False)
@@ -1378,16 +1330,13 @@ class NaverBlogAutomation:
         return value
 
     def _build_account_profile_slot(self, account_id):
-        """계정별 고정 프로필 슬롯명 생성"""
+        """계정 아이디 기반 프로필 슬롯명 생성 (chrome_profile_<id>)"""
         raw = (account_id or "").strip()
         cleaned = _sanitize_profile_name(raw)
         if not cleaned:
             return None
-        # 파일시스템 경로 길이와 가독성을 고려해 길이 제한
-        cleaned = cleaned[:24]
-        # 앞부분이 같은 긴 계정 ID끼리 슬롯이 충돌하지 않도록 해시를 붙인다.
-        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
-        return f"acct_{cleaned}_{digest}"
+        # 파일시스템 경로 길이를 고려해 길이만 제한
+        return cleaned[:48]
 
     def _mask_account_id(self, account_id):
         raw = (account_id or "").strip()
@@ -1503,7 +1452,10 @@ class NaverBlogAutomation:
         requested = self._requested_profile_slot()
         slot_candidates = []
         if requested:
-            slot_candidates = [f"chrome_profile_{requested}"]
+            if requested.startswith("chrome_profile_"):
+                slot_candidates = [requested]
+            else:
+                slot_candidates = [f"chrome_profile_{requested}"]
         else:
             slot_candidates = ["chrome_profile"] + [f"chrome_profile_{i}" for i in range(2, 11)]
 
@@ -1647,6 +1599,15 @@ class NaverBlogAutomation:
                     print(f"🔧 [자동복구] 중복 'result' 폴더(etc) 삭제 완료")
                 except Exception as e:
                     print(f"⚠️ [자동복구] 중복 'result' 삭제 실패: {e}")
+
+        # 3. 레거시 accounts 폴더 정리 (더 이상 사용하지 않음)
+        legacy_accounts_dir = os.path.join(self.data_dir, "setting", "accounts")
+        if os.path.isdir(legacy_accounts_dir):
+            try:
+                shutil.rmtree(legacy_accounts_dir, ignore_errors=True)
+                print("🔧 [자동복구] 레거시 'accounts' 폴더 삭제 완료")
+            except Exception:
+                pass
     
     def clean_old_files(self):
         """result 폴더의 1주일 이상 된 파일 자동 삭제"""
@@ -1873,8 +1834,16 @@ class NaverBlogAutomation:
                                 for kw in source_remaining:
                                     src_f.write(kw + '\n')
                         if source_used_file:
-                            with open(source_used_file, 'a', encoding='utf-8') as src_used_f:
-                                src_used_f.write(keyword + '\n')
+                            same_used = False
+                            try:
+                                same_used = os.path.samefile(source_used_file, used_keywords_file)
+                            except Exception:
+                                same_used = (
+                                    os.path.abspath(source_used_file) == os.path.abspath(used_keywords_file)
+                                )
+                            if not same_used:
+                                with open(source_used_file, 'a', encoding='utf-8') as src_used_f:
+                                    src_used_f.write(keyword + '\n')
                 except Exception:
                     pass
                 
@@ -3171,7 +3140,7 @@ class NaverBlogAutomation:
             source_image_path = _find_thumbnail_source_path(self.data_dir, self.naver_id, create=True)
             if not source_image_path:
                 self._update_status(f"⚠️ 계정({self.naver_id or 'default'})에 연동된 JPG를 찾지 못했습니다.")
-                self._update_status(f"   - 계정 폴더: {image_folder}")
+                self._update_status(f"   - 이미지 폴더: {image_folder}")
                 self._update_status(f"   - 공용 폴더: {os.path.join(self.data_dir, 'setting', 'image')}")
                 return None
             self._update_status(f"📷 배경 이미지: {os.path.basename(source_image_path)}")
@@ -10985,11 +10954,14 @@ class NaverBlogGUI(QMainWindow):
             self._update_settings_status(f"❌ 경로 열기 실패: {str(e)}")
 
     def _apply_keywords_file_to_account(self, account_id, source_file):
-        import shutil
-
         try:
-            target_file, used_file = _resolve_account_keyword_paths(self.data_dir, account_id, create=True)
-            shutil.copy2(source_file, target_file)
+            if not os.path.isfile(source_file):
+                self._show_auto_close_message("⚠️ 선택한 키워드 파일을 찾을 수 없습니다.", QMessageBox.Icon.Warning)
+                return False
+            if not str(source_file).lower().endswith(".txt"):
+                self._show_auto_close_message("⚠️ TXT 파일만 선택할 수 있습니다.", QMessageBox.Icon.Warning)
+                return False
+
             source_name = os.path.basename(source_file)
             _write_keyword_source_name(self.data_dir, account_id, source_name)
             _write_keyword_source_path(self.data_dir, account_id, source_file)
@@ -10999,10 +10971,7 @@ class NaverBlogGUI(QMainWindow):
             selected_used_file = _resolve_used_keyword_log_path(self.data_dir, account_id, create=True)
             with open(selected_used_file, "w", encoding="utf-8"):
                 pass
-            # 레거시 used_keywords.txt도 비워 혼선을 방지
-            with open(used_file, "w", encoding="utf-8"):
-                pass
-            self._update_settings_status(f"✅ 계정({account_id}) 키워드 파일 적용 완료")
+            self._update_settings_status(f"✅ 계정({account_id}) 키워드 파일 연동 완료")
             self.update_status_display()
             return True
         except Exception as e:
@@ -11010,10 +10979,7 @@ class NaverBlogGUI(QMainWindow):
             return False
 
     def _apply_thumbnail_file_to_account(self, account_id, source_file):
-        import shutil
-
         try:
-            target_dir = _resolve_account_thumbnail_dir(self.data_dir, account_id, create=True)
             if not os.path.isfile(source_file):
                 self._show_auto_close_message("⚠️ 선택한 썸네일 파일을 찾을 수 없습니다.", QMessageBox.Icon.Warning)
                 return False
@@ -11021,21 +10987,10 @@ class NaverBlogGUI(QMainWindow):
             if not lower.endswith((".jpg", ".jpeg")):
                 self._show_auto_close_message("⚠️ JPG/JPEG 파일만 선택할 수 있습니다.", QMessageBox.Icon.Warning)
                 return False
-
-            # 계정별 썸네일은 1개 기준으로 관리: 기존 jpg는 정리하고 새 파일만 유지
-            for name in os.listdir(target_dir):
-                if name.lower().endswith((".jpg", ".jpeg")):
-                    try:
-                        os.remove(os.path.join(target_dir, name))
-                    except Exception:
-                        pass
-
             target_name = os.path.basename(source_file)
-            target_path = os.path.join(target_dir, target_name)
-            shutil.copy2(source_file, target_path)
             _write_thumbnail_source_name(self.data_dir, account_id, target_name)
             _write_thumbnail_source_path(self.data_dir, account_id, source_file)
-            self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 적용 완료: {target_name}")
+            self._update_settings_status(f"✅ 계정({account_id}) 썸네일 파일 연동 완료: {target_name}")
             self.update_status_display()
             return True
         except Exception as e:
@@ -12331,7 +12286,7 @@ class NaverBlogGUI(QMainWindow):
                 common_dir = os.path.join(self.data_dir, "setting", "image")
                 self.show_message(
                     "⚠️ 경고",
-                    f"연동된 JPG 파일을 찾을 수 없습니다.\n계정({account_id or 'default'})에 JPG를 다시 연결해주세요.\n- 계정 폴더: {thumbnail_dir}\n- 공용 폴더: {common_dir}",
+                    f"연동된 JPG 파일을 찾을 수 없습니다.\n계정({account_id or 'default'})에 JPG를 다시 연결해주세요.\n- 이미지 폴더: {thumbnail_dir}\n- 공용 폴더: {common_dir}",
                     "warning"
                 )
                 _reset_start_state()
@@ -12344,7 +12299,7 @@ class NaverBlogGUI(QMainWindow):
         # 키워드 파일 확인 (필수)
         keyword_count = self.count_keywords()
         if keyword_count <= 0:
-            self.show_message("⚠️ 경고", f"키워드가 없습니다.\n계정({account_id or 'default'}) 전용 keywords.txt에 키워드를 추가해주세요.\n{self._selected_keywords_file(create=True)}", "warning")
+            self.show_message("⚠️ 경고", f"키워드가 없습니다.\n계정({account_id or 'default'})에 연동된 키워드 파일에 키워드를 추가해주세요.\n{self._selected_keywords_file(create=True)}", "warning")
             _reset_start_state()
             return
         
