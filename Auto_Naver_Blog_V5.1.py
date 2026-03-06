@@ -10255,10 +10255,11 @@ class NaverBlogGUI(QMainWindow):
 
         related_posts_card.header_layout.insertWidget(1, related_toggle_container)
         related_posts_card.header_layout.insertWidget(2, mode_header_container)
+        related_account_btn_height = self.external_link_account_btn.minimumHeight() if hasattr(self, "external_link_account_btn") else 30
         self.related_posts_account_btn = QPushButton("👤 계정별 설정")
         self.related_posts_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.related_posts_account_btn.setMinimumHeight(30)
-        self.related_posts_account_btn.setFixedHeight(30)
+        self.related_posts_account_btn.setMinimumHeight(related_account_btn_height)
+        self.related_posts_account_btn.setFixedHeight(related_account_btn_height)
         self.related_posts_account_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FFFFFF;
