@@ -8398,6 +8398,7 @@ class NaverBlogGUI(QMainWindow):
         # GUI 구성
         self._create_gui()
         self._apply_config()
+        self._init_periodic_license_verification()
         try:
             source_label = "EXE" if self.data_dir_source == "exe" else ("LOCALAPPDATA" if self.data_dir_source == "localappdata" else "SCRIPT")
             setting_path = os.path.join(self.data_dir, "setting")
@@ -11581,6 +11582,60 @@ class NaverBlogGUI(QMainWindow):
         except Exception as e:
             self.license_period_label.setText("📅 사용기간: 확인 실패")
             self.license_period_label.setStyleSheet(f"color: #D32F2F; border: none;")
+
+    def _init_periodic_license_verification(self):
+        """실행 중 주기적으로 라이선스를 재검증한다."""
+        self.license_recheck_timer = QTimer(self)
+        self.license_recheck_timer.setInterval(60 * 60 * 1000)  # 60분
+        self.license_recheck_timer.timeout.connect(self._run_periodic_license_verification)
+        self.license_recheck_timer.start()
+
+    def _run_periodic_license_verification(self):
+        """주기 검증 실패 시 실행을 즉시 차단한다."""
+        try:
+            license_manager = LicenseManager()
+            is_valid, message = license_manager.verify_license()
+            if is_valid:
+                self._update_license_info()
+                return
+            self._force_block_by_license_failure(message)
+        except Exception:
+            self._force_block_by_license_failure("라이선스 재검증에 실패했습니다.")
+
+    def _force_block_by_license_failure(self, reason):
+        """재검증 실패 시 자동화/타이머를 중지하고 앱을 종료한다."""
+        try:
+            if getattr(self, "license_recheck_timer", None) and self.license_recheck_timer.isActive():
+                self.license_recheck_timer.stop()
+        except Exception:
+            pass
+
+        try:
+            self.is_running = False
+            self.is_paused = False
+            self.stop_requested = True
+            self.stop_countdown()
+        except Exception:
+            pass
+
+        try:
+            if self.automation:
+                self.automation.should_stop = True
+                self.automation.should_pause = False
+        except Exception:
+            pass
+
+        try:
+            self._set_control_buttons_safe(True, False, False, False)
+        except Exception:
+            pass
+
+        QMessageBox.critical(
+            self,
+            "🔒 사용 권한 차단",
+            f"60분 주기 라이선스 재검증에 실패하여 실행이 차단되었습니다.\n\n사유: {reason}",
+        )
+        QApplication.instance().quit()
     
     def count_keywords(self):
         """키워드 개수 카운트"""
