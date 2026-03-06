@@ -7918,7 +7918,7 @@ class RelatedPostsAccountDialog(QDialog):
             title_entry.setFixedHeight(34)
 
             blog_entry = QLineEdit()
-            blog_entry.setPlaceholderText("블로그 주소 아이디 (예: dreamroom_official)")
+            blog_entry.setPlaceholderText("블로그 주소 아이디 (예: david153)")
             blog_entry.setFixedHeight(34)
 
             mode_combo = QComboBox()
