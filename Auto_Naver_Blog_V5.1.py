@@ -8062,11 +8062,11 @@ class ExternalLinkAccountDialog(QDialog):
             use_checkbox.setStyleSheet(f"color: {NAVER_TEXT}; background-color: transparent; border: none;")
 
             url_entry = QLineEdit()
-            url_entry.setPlaceholderText("https://example.com")
+            url_entry.setPlaceholderText("링크 URL (예. https://example.com)")
             url_entry.setFixedHeight(34)
 
             text_entry = QLineEdit()
-            text_entry.setPlaceholderText("더 알아보기")
+            text_entry.setPlaceholderText("앵커 텍스트 (예. 더 알아보기)")
             text_entry.setFixedHeight(34)
 
             enabled, ext_links, ext_text, _ext_mode = self.parent._get_external_link_values_for_account(account_id)
@@ -8084,18 +8084,18 @@ class ExternalLinkAccountDialog(QDialog):
 
             use_checkbox.toggled.connect(_on_toggle)
 
-            def _bind_clear_on_focus(widget, example_text):
+            def _bind_clear_on_focus(widget, example_texts):
                 original_focus_in = widget.focusInEvent
 
-                def _on_focus_in(event, w=widget, sample=example_text, base_handler=original_focus_in):
-                    if w.isEnabled() and w.text().strip() == sample:
+                def _on_focus_in(event, w=widget, samples=example_texts, base_handler=original_focus_in):
+                    if w.isEnabled() and w.text().strip() in samples:
                         w.clear()
                     base_handler(event)
 
                 widget.focusInEvent = _on_focus_in
 
-            _bind_clear_on_focus(url_entry, "https://example.com")
-            _bind_clear_on_focus(text_entry, "더 알아보기")
+            _bind_clear_on_focus(url_entry, {"https://example.com", "링크 URL (예. https://example.com)"})
+            _bind_clear_on_focus(text_entry, {"더 알아보기", "앵커 텍스트 (예. 더 알아보기)"})
 
             top_row = QHBoxLayout()
             top_row.setContentsMargins(0, 0, 0, 0)
