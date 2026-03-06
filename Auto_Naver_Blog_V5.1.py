@@ -9667,28 +9667,6 @@ class NaverBlogGUI(QMainWindow):
         link_url_control_row.addWidget(self.link_insert_mode_combo, 1)
         url_layout.addLayout(link_url_control_row)
 
-        self.link_urls_entry = QTextEdit()
-        self.link_urls_entry.setPlaceholderText("등록된 링크 URL 목록 (한 줄에 하나씩)\n예) https://example1.com")
-        self.link_urls_entry.setMinimumHeight(84)
-        self.link_urls_entry.setEnabled(False)
-        self.link_urls_entry.setStyleSheet(f"""
-            QTextEdit {{
-                border: 2px solid {NAVER_BORDER};
-                border-radius: 10px;
-                padding: 6px 10px;
-                background-color: {NAVER_BG};
-                color: {NAVER_TEXT_SUB};
-                font-size: 12px;
-            }}
-            QTextEdit:enabled {{
-                background-color: white;
-                color: {NAVER_TEXT};
-            }}
-            QTextEdit:focus {{
-                border-color: {NAVER_GREEN};
-            }}
-        """)
-        url_layout.addWidget(self.link_urls_entry)
         link_grid.addWidget(url_widget, 0, 0)
         
         text_widget = QWidget()
@@ -9740,6 +9718,48 @@ class NaverBlogGUI(QMainWindow):
         link_grid.addWidget(text_widget, 0, 1)
         
         link_card.content_layout.addLayout(link_grid)
+
+        links_list_container = QWidget()
+        links_list_container.setStyleSheet("QWidget { background-color: transparent; }")
+        links_list_layout = QVBoxLayout(links_list_container)
+        links_list_layout.setContentsMargins(0, 8, 0, 0)
+        links_list_layout.setSpacing(6)
+
+        links_list_label_row = QWidget()
+        links_list_label_row.setStyleSheet("QWidget { background-color: transparent; }")
+        links_list_label_row.setMinimumHeight(24)
+        links_list_label_layout = QHBoxLayout(links_list_label_row)
+        links_list_label_layout.setContentsMargins(0, 0, 0, 0)
+        links_list_label_layout.setSpacing(6)
+        links_list_label = PremiumCard.create_section_label("📚 등록된 링크 목록", self.font_family)
+        links_list_label_layout.addWidget(links_list_label)
+        links_list_label_layout.addStretch()
+        links_list_layout.addWidget(links_list_label_row)
+
+        self.link_urls_entry = QTextEdit()
+        self.link_urls_entry.setPlaceholderText("등록된 링크 URL 목록 (한 줄에 하나씩)\n예) https://example1.com")
+        self.link_urls_entry.setMinimumHeight(76)
+        self.link_urls_entry.setMaximumHeight(110)
+        self.link_urls_entry.setEnabled(False)
+        self.link_urls_entry.setStyleSheet(f"""
+            QTextEdit {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 10px;
+                padding: 6px 10px;
+                background-color: {NAVER_BG};
+                color: {NAVER_TEXT_SUB};
+                font-size: 12px;
+            }}
+            QTextEdit:enabled {{
+                background-color: white;
+                color: {NAVER_TEXT};
+            }}
+            QTextEdit:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+        """)
+        links_list_layout.addWidget(self.link_urls_entry)
+        link_card.content_layout.addWidget(links_list_container)
         
         self.link_save_btn = QPushButton("💾 링크 설정 저장")
         self.link_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
