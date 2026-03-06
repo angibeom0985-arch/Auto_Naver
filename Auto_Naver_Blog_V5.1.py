@@ -9561,10 +9561,28 @@ class NaverBlogGUI(QMainWindow):
         """)
         checkbox_layout.addWidget(self.link_status_label)
         
-        link_card.header.layout().insertWidget(1, checkbox_container)
-        
-        # 공백 유지를 위한 더미 위젯 (항상 표시)
-        link_card.header.layout().addStretch()
+        link_card.header_layout.insertWidget(1, checkbox_container)
+        self.external_link_account_btn = QPushButton("👤 계정별 설정")
+        self.external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.external_link_account_btn.setMinimumHeight(30)
+        self.external_link_account_btn.setFixedHeight(30)
+        self.external_link_account_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFFFFF;
+                color: {NAVER_TEXT};
+                border: 2px solid {NAVER_GREEN};
+                border-radius: 8px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {NAVER_GREEN_LIGHT};
+            }}
+        """)
+        self.external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
+        link_card.header_layout.insertWidget(2, self.external_link_account_btn)
+        link_card.header_layout.addStretch()
 
         link_account_box = QFrame()
         link_account_box.setStyleSheet(f"""
@@ -9614,13 +9632,6 @@ class NaverBlogGUI(QMainWindow):
         link_account_layout.addWidget(self.link_account_selector)
         link_account_layout.addStretch()
 
-        self.external_link_account_btn = QPushButton("👤 계정별 설정")
-        self.external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.external_link_account_btn.setMinimumHeight(34)
-        self.external_link_account_btn.setFixedHeight(34)
-        self.external_link_account_btn.setStyleSheet(save_btn_style)
-        self.external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
-        link_account_layout.addWidget(self.external_link_account_btn)
         link_card.content_layout.addWidget(link_account_box)
         
         link_grid = QGridLayout()
@@ -9672,37 +9683,13 @@ class NaverBlogGUI(QMainWindow):
         self.link_url_entry.focusInEvent = lambda e: self._clear_example_text(self.link_url_entry, "https://example.com") if self.link_url_entry.isEnabled() else None
         url_layout.addWidget(self.link_url_entry)
 
-        link_url_control_row = QHBoxLayout()
-        link_url_control_row.setContentsMargins(0, 0, 0, 0)
-        link_url_control_row.setSpacing(8)
         self.link_add_btn = QPushButton("＋ 추가")
-        self.link_add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.link_add_btn.setMinimumHeight(28)
-        self.link_add_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {NAVER_GREEN};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 4px 10px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {NAVER_GREEN_HOVER};
-            }}
-        """)
         self.link_add_btn.clicked.connect(self.add_external_link_url)
-        link_url_control_row.addWidget(self.link_add_btn, 0)
-
-        mode_label = PremiumCard.create_section_label("삽입 방식", self.font_family)
-        link_url_control_row.addWidget(mode_label, 0)
         self.link_insert_mode_combo = QComboBox()
         self.link_insert_mode_combo.addItem("순차", "sequential")
         self.link_insert_mode_combo.addItem("랜덤", "random")
-        self.link_insert_mode_combo.setMinimumHeight(28)
-        link_url_control_row.addWidget(self.link_insert_mode_combo, 1)
-        url_layout.addLayout(link_url_control_row)
+        self.link_add_btn.setVisible(False)
+        self.link_insert_mode_combo.setVisible(False)
 
         link_grid.addWidget(url_widget, 0, 0)
         
@@ -9756,47 +9743,9 @@ class NaverBlogGUI(QMainWindow):
         
         link_card.content_layout.addLayout(link_grid)
 
-        links_list_container = QWidget()
-        links_list_container.setStyleSheet("QWidget { background-color: transparent; }")
-        links_list_layout = QVBoxLayout(links_list_container)
-        links_list_layout.setContentsMargins(0, 8, 0, 0)
-        links_list_layout.setSpacing(6)
-
-        links_list_label_row = QWidget()
-        links_list_label_row.setStyleSheet("QWidget { background-color: transparent; }")
-        links_list_label_row.setMinimumHeight(24)
-        links_list_label_layout = QHBoxLayout(links_list_label_row)
-        links_list_label_layout.setContentsMargins(0, 0, 0, 0)
-        links_list_label_layout.setSpacing(6)
-        links_list_label = PremiumCard.create_section_label("📚 등록된 링크 목록", self.font_family)
-        links_list_label_layout.addWidget(links_list_label)
-        links_list_label_layout.addStretch()
-        links_list_layout.addWidget(links_list_label_row)
-
         self.link_urls_entry = QTextEdit()
-        self.link_urls_entry.setPlaceholderText("등록된 링크 URL 목록 (한 줄에 하나씩)\n예) https://example1.com")
-        self.link_urls_entry.setMinimumHeight(76)
-        self.link_urls_entry.setMaximumHeight(110)
         self.link_urls_entry.setEnabled(False)
-        self.link_urls_entry.setStyleSheet(f"""
-            QTextEdit {{
-                border: 2px solid {NAVER_BORDER};
-                border-radius: 10px;
-                padding: 6px 10px;
-                background-color: {NAVER_BG};
-                color: {NAVER_TEXT_SUB};
-                font-size: 12px;
-            }}
-            QTextEdit:enabled {{
-                background-color: white;
-                color: {NAVER_TEXT};
-            }}
-            QTextEdit:focus {{
-                border-color: {NAVER_GREEN};
-            }}
-        """)
-        links_list_layout.addWidget(self.link_urls_entry)
-        link_card.content_layout.addWidget(links_list_container)
+        self.link_urls_entry.setVisible(False)
         
         self.link_save_btn = QPushButton("💾 링크 설정 저장")
         self.link_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
