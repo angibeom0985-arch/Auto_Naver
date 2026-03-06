@@ -9562,29 +9562,66 @@ class NaverBlogGUI(QMainWindow):
         checkbox_layout.addWidget(self.link_status_label)
         
         link_card.header.layout().insertWidget(1, checkbox_container)
-        self.external_link_account_btn = QPushButton("👤 계정별 설정")
-        self.external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.external_link_account_btn.setMinimumHeight(30)
-        self.external_link_account_btn.setFixedHeight(30)
-        self.external_link_account_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FFFFFF;
-                color: {NAVER_TEXT};
-                border: 2px solid {NAVER_GREEN};
-                border-radius: 8px;
-                padding: 4px 12px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {NAVER_GREEN_LIGHT};
-            }}
-        """)
-        self.external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
-        link_card.header.layout().insertWidget(2, self.external_link_account_btn)
         
         # 공백 유지를 위한 더미 위젯 (항상 표시)
         link_card.header.layout().addStretch()
+
+        link_account_box = QFrame()
+        link_account_box.setStyleSheet(f"""
+            QFrame {{
+                background-color: #FFFFFF;
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 10px;
+                padding: 8px;
+            }}
+        """)
+        link_account_layout = QHBoxLayout(link_account_box)
+        link_account_layout.setContentsMargins(10, 8, 10, 8)
+        link_account_layout.setSpacing(10)
+
+        self.link_account_count_label = QLabel("등록 계정: 0개")
+        self.link_account_count_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
+        self.link_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
+        self.link_account_count_label.setWordWrap(False)
+        link_account_layout.addWidget(self.link_account_count_label)
+
+        self.link_account_selector = QComboBox()
+        self.link_account_selector.setMinimumWidth(190)
+        self.link_account_selector.setMaxVisibleItems(6)
+        self.link_account_selector.setEditable(False)
+        self.link_account_selector.setStyleSheet(f"""
+            QComboBox {{
+                border: 2px solid {NAVER_BORDER};
+                border-radius: 8px;
+                padding: 4px 8px;
+                background-color: white;
+                color: #000000;
+                font-size: 12px;
+            }}
+            QComboBox:focus {{
+                border-color: {NAVER_GREEN};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: white;
+                color: #000000;
+                border: 1px solid {NAVER_BORDER};
+                selection-background-color: {NAVER_GREEN_LIGHT};
+                selection-color: #000000;
+                outline: none;
+            }}
+        """)
+        self.link_account_selector.currentIndexChanged.connect(self.on_naver_account_selector_changed)
+        link_account_layout.addWidget(self.link_account_selector)
+        link_account_layout.addStretch()
+
+        self.external_link_account_btn = QPushButton("👤 계정별 설정")
+        self.external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.external_link_account_btn.setMinimumHeight(34)
+        self.external_link_account_btn.setFixedHeight(34)
+        self.external_link_account_btn.setStyleSheet(save_btn_style)
+        self.external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
+        link_account_layout.addWidget(self.external_link_account_btn)
+        link_card.content_layout.addWidget(link_account_box)
         
         link_grid = QGridLayout()
         link_grid.setColumnStretch(0, 1)
@@ -10665,6 +10702,9 @@ class NaverBlogGUI(QMainWindow):
         if hasattr(self, "naver_account_count_label"):
             count = len(filled_accounts)
             self.naver_account_count_label.setText(f"등록 계정: {count}개")
+        if hasattr(self, "link_account_count_label"):
+            count = len(filled_accounts)
+            self.link_account_count_label.setText(f"등록 계정: {count}개")
 
         if hasattr(self, "naver_account_selector"):
             self.naver_account_selector.blockSignals(True)
@@ -10680,6 +10720,20 @@ class NaverBlogGUI(QMainWindow):
             if self.naver_account_selector.count() > 0:
                 self.naver_account_selector.setCurrentIndex(active_slot)
             self.naver_account_selector.blockSignals(False)
+        if hasattr(self, "link_account_selector"):
+            self.link_account_selector.blockSignals(True)
+            self.link_account_selector.clear()
+            for i, slot in enumerate(slots):
+                account_id = str(slot.get("id", "")).strip()
+                account_pw = str(slot.get("pw", "")).strip()
+                if account_id and account_pw:
+                    label = f"계정 {i + 1}: {account_id}"
+                else:
+                    label = f"계정 {i + 1}: 미설정"
+                self.link_account_selector.addItem(label, i)
+            if self.link_account_selector.count() > 0:
+                self.link_account_selector.setCurrentIndex(active_slot)
+            self.link_account_selector.blockSignals(False)
 
         if hasattr(self, "monitor_naver_account_selector"):
             self.monitor_naver_account_selector.blockSignals(True)
