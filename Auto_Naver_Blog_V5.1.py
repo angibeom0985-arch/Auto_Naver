@@ -9584,56 +9584,6 @@ class NaverBlogGUI(QMainWindow):
         link_card.header_layout.insertWidget(2, self.external_link_account_btn)
         link_card.header_layout.addStretch()
 
-        link_account_box = QFrame()
-        link_account_box.setStyleSheet(f"""
-            QFrame {{
-                background-color: #FFFFFF;
-                border: 2px solid {NAVER_BORDER};
-                border-radius: 10px;
-                padding: 8px;
-            }}
-        """)
-        link_account_layout = QHBoxLayout(link_account_box)
-        link_account_layout.setContentsMargins(10, 8, 10, 8)
-        link_account_layout.setSpacing(10)
-
-        self.link_account_count_label = QLabel("등록 계정: 0개")
-        self.link_account_count_label.setFont(QFont(self.font_family, 13, QFont.Weight.Bold))
-        self.link_account_count_label.setStyleSheet(f"color: {NAVER_TEXT}; border: none;")
-        self.link_account_count_label.setWordWrap(False)
-        link_account_layout.addWidget(self.link_account_count_label)
-
-        self.link_account_selector = QComboBox()
-        self.link_account_selector.setMinimumWidth(190)
-        self.link_account_selector.setMaxVisibleItems(6)
-        self.link_account_selector.setEditable(False)
-        self.link_account_selector.setStyleSheet(f"""
-            QComboBox {{
-                border: 2px solid {NAVER_BORDER};
-                border-radius: 8px;
-                padding: 4px 8px;
-                background-color: white;
-                color: #000000;
-                font-size: 12px;
-            }}
-            QComboBox:focus {{
-                border-color: {NAVER_GREEN};
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: white;
-                color: #000000;
-                border: 1px solid {NAVER_BORDER};
-                selection-background-color: {NAVER_GREEN_LIGHT};
-                selection-color: #000000;
-                outline: none;
-            }}
-        """)
-        self.link_account_selector.currentIndexChanged.connect(self.on_naver_account_selector_changed)
-        link_account_layout.addWidget(self.link_account_selector)
-        link_account_layout.addStretch()
-
-        link_card.content_layout.addWidget(link_account_box)
-        
         link_grid = QGridLayout()
         link_grid.setColumnStretch(0, 1)
         link_grid.setColumnStretch(1, 1)
