@@ -7921,21 +7921,29 @@ class RelatedPostsAccountDialog(QDialog):
             blog_entry.setPlaceholderText("블로그 주소 아이디 (예: dreamroom_official)")
             blog_entry.setFixedHeight(34)
 
-            enabled_value, title_value, blog_value = self.parent._get_related_posts_values_for_account(account_id)
+            mode_combo = QComboBox()
+            mode_combo.addItem("최신 글", "latest")
+            mode_combo.addItem("인기 글", "popular")
+            mode_combo.setFixedHeight(34)
+
+            enabled_value, title_value, blog_value, mode_value = self.parent._get_related_posts_values_for_account(account_id)
             use_checkbox.setChecked(bool(enabled_value))
             title_entry.setText(title_value)
             if blog_value.startswith("https://blog.naver.com/"):
                 blog_entry.setText(blog_value.replace("https://blog.naver.com/", "", 1))
             else:
                 blog_entry.setText(blog_value)
+            mode_idx = mode_combo.findData(mode_value)
+            mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
 
             inputs_row.addWidget(use_checkbox, 0)
             inputs_row.addWidget(title_entry, 1)
             inputs_row.addWidget(blog_entry, 1)
+            inputs_row.addWidget(mode_combo, 0)
             row_layout.addLayout(inputs_row)
 
             layout.addWidget(row_frame)
-            self.account_inputs.append((account_id, use_checkbox, title_entry, blog_entry))
+            self.account_inputs.append((account_id, use_checkbox, title_entry, blog_entry, mode_combo))
             visible_row_count += 1
 
         if not self.account_inputs:
@@ -7959,19 +7967,20 @@ class RelatedPostsAccountDialog(QDialog):
         layout.addLayout(footer)
 
         row_count = max(visible_row_count, 1)
-        target_height = 46 + (row_count * 84) + 62
+        target_height = 46 + (row_count * 102) + 62
         target_height = max(170, min(target_height, 520))
         self.setFixedHeight(target_height)
 
     def save_and_close(self):
         settings_map = {}
-        for account_id, use_checkbox, title_entry, blog_entry in self.account_inputs:
+        for account_id, use_checkbox, title_entry, blog_entry, mode_combo in self.account_inputs:
             title = title_entry.text().strip()
             blog_address = normalize_blog_address(blog_entry.text().strip())
             settings_map[account_id] = {
                 "related_posts_enabled": bool(use_checkbox.isChecked()),
                 "related_posts_title": title,
                 "blog_address": blog_address,
+                "related_posts_mode": str(mode_combo.currentData() or "latest").strip(),
             }
         self.parent._save_related_posts_account_settings(settings_map)
         self.accept()
@@ -8060,28 +8069,50 @@ class ExternalLinkAccountDialog(QDialog):
             text_entry.setPlaceholderText("더 알아보기")
             text_entry.setFixedHeight(34)
 
-            enabled, ext_links, ext_text, _ext_mode = self.parent._get_external_link_values_for_account(account_id)
+            mode_combo = QComboBox()
+            mode_combo.addItem("순차", "sequential")
+            mode_combo.addItem("랜덤", "random")
+            mode_combo.setFixedHeight(34)
+
+            urls_entry = QTextEdit()
+            urls_entry.setPlaceholderText("링크 URL 목록 (한 줄에 하나)")
+            urls_entry.setMinimumHeight(72)
+
+            enabled, ext_links, ext_text, ext_mode = self.parent._get_external_link_values_for_account(account_id)
             ext_url = ext_links[0] if ext_links else ""
             use_checkbox.setChecked(bool(enabled))
             url_entry.setText(ext_url)
             text_entry.setText(ext_text)
+            urls_entry.setPlainText(self.parent._external_links_to_text(ext_links))
+            mode_idx = mode_combo.findData(ext_mode)
+            mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
             url_entry.setEnabled(bool(enabled))
             text_entry.setEnabled(bool(enabled))
+            urls_entry.setEnabled(bool(enabled))
+            mode_combo.setEnabled(bool(enabled))
 
-            def _on_toggle(state, url_widget=url_entry, text_widget=text_entry):
+            def _on_toggle(state, url_widget=url_entry, text_widget=text_entry, urls_widget=urls_entry, mode_widget=mode_combo):
                 active = bool(state)
                 url_widget.setEnabled(active)
                 text_widget.setEnabled(active)
+                urls_widget.setEnabled(active)
+                mode_widget.setEnabled(active)
 
             use_checkbox.toggled.connect(_on_toggle)
 
-            inputs_row.addWidget(use_checkbox, 0)
-            inputs_row.addWidget(url_entry, 1)
-            inputs_row.addWidget(text_entry, 1)
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(8)
+            top_row.addWidget(use_checkbox, 0)
+            top_row.addWidget(url_entry, 1)
+            top_row.addWidget(text_entry, 1)
+            top_row.addWidget(mode_combo, 0)
+            inputs_row.addLayout(top_row)
+            inputs_row.addWidget(urls_entry)
             row_layout.addLayout(inputs_row)
 
             layout.addWidget(row_frame)
-            self.account_inputs.append((account_id, use_checkbox, url_entry, text_entry))
+            self.account_inputs.append((account_id, use_checkbox, url_entry, text_entry, mode_combo, urls_entry))
             visible_row_count += 1
 
         if not self.account_inputs:
@@ -8105,20 +8136,22 @@ class ExternalLinkAccountDialog(QDialog):
         layout.addLayout(footer)
 
         row_count = max(visible_row_count, 1)
-        target_height = 46 + (row_count * 86) + 62
+        target_height = 46 + (row_count * 138) + 62
         target_height = max(180, min(target_height, 560))
         self.setFixedHeight(target_height)
 
     def save_and_close(self):
         settings_map = {}
-        for account_id, use_checkbox, url_entry, text_entry in self.account_inputs:
+        for account_id, use_checkbox, url_entry, text_entry, mode_combo, urls_entry in self.account_inputs:
             enabled = bool(use_checkbox.isChecked())
             link_value = url_entry.text().strip()
+            links = self.parent._parse_external_links_text(urls_entry.toPlainText(), fallback_link=link_value)
+            mode = self.parent._normalize_external_link_mode(mode_combo.currentData())
             settings_map[account_id] = {
                 "use_external_link": enabled,
                 "external_link": link_value,
-                "external_links": [link_value] if link_value else [],
-                "external_link_mode": "sequential",
+                "external_links": links,
+                "external_link_mode": mode,
                 "external_link_text": text_entry.text().strip(),
             }
         self.parent._save_external_link_account_settings(settings_map)
@@ -9529,10 +9562,10 @@ class NaverBlogGUI(QMainWindow):
         checkbox_layout.addWidget(self.link_status_label)
         
         link_card.header.layout().insertWidget(1, checkbox_container)
-        external_link_account_btn = QPushButton("👤 계정별 설정")
-        external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        external_link_account_btn.setMinimumHeight(30)
-        external_link_account_btn.setStyleSheet(f"""
+        self.external_link_account_btn = QPushButton("👤 계정별 설정")
+        self.external_link_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.external_link_account_btn.setMinimumHeight(30)
+        self.external_link_account_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FFFFFF;
                 color: {NAVER_TEXT};
@@ -9546,8 +9579,8 @@ class NaverBlogGUI(QMainWindow):
                 background-color: {NAVER_GREEN_LIGHT};
             }}
         """)
-        external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
-        link_card.header.layout().insertWidget(2, external_link_account_btn)
+        self.external_link_account_btn.clicked.connect(self.open_external_link_accounts_dialog)
+        link_card.header.layout().insertWidget(2, self.external_link_account_btn)
         
         # 공백 유지를 위한 더미 위젯 (항상 표시)
         link_card.header.layout().addStretch()
@@ -9707,20 +9740,20 @@ class NaverBlogGUI(QMainWindow):
         
         link_card.content_layout.addLayout(link_grid)
         
-        link_save_btn = QPushButton("💾 링크 설정 저장")
-        link_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        link_save_btn.setStyleSheet(save_btn_style)
-        link_save_btn.setMinimumHeight(save_btn_height)
-        link_save_btn.clicked.connect(self.save_link_settings)
+        self.link_save_btn = QPushButton("💾 링크 설정 저장")
+        self.link_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.link_save_btn.setStyleSheet(save_btn_style)
+        self.link_save_btn.setMinimumHeight(save_btn_height)
+        self.link_save_btn.clicked.connect(self.save_link_settings)
         link_card.content_layout.addStretch()
-        link_card.content_layout.addWidget(link_save_btn)
+        link_card.content_layout.addWidget(self.link_save_btn)
         
         link_card.setMinimumHeight(card_min_height)
         
         layout.addWidget(link_card, 3, 0)
         
         # 초기 취소선 적용 (체크 해제 상태이므로)
-        self.toggle_external_link()
+        self.toggle_external_link(emit_status=False)
         
         # === Row 4, Col 0: AI 설정 (Gemini 전용) ===
         api_card = PremiumCard("🤖 AI 설정", "")
@@ -10271,10 +10304,10 @@ class NaverBlogGUI(QMainWindow):
 
         related_posts_card.header_layout.insertWidget(1, related_toggle_container)
         related_posts_card.header_layout.insertWidget(2, mode_header_container)
-        related_posts_account_btn = QPushButton("👤 계정별 설정")
-        related_posts_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        related_posts_account_btn.setMinimumHeight(30)
-        related_posts_account_btn.setStyleSheet(f"""
+        self.related_posts_account_btn = QPushButton("👤 계정별 설정")
+        self.related_posts_account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.related_posts_account_btn.setMinimumHeight(30)
+        self.related_posts_account_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FFFFFF;
                 color: {NAVER_TEXT};
@@ -10288,8 +10321,8 @@ class NaverBlogGUI(QMainWindow):
                 background-color: {NAVER_GREEN_LIGHT};
             }}
         """)
-        related_posts_account_btn.clicked.connect(self.open_related_posts_accounts_dialog)
-        related_posts_card.header_layout.insertWidget(3, related_posts_account_btn)
+        self.related_posts_account_btn.clicked.connect(self.open_related_posts_accounts_dialog)
+        related_posts_card.header_layout.insertWidget(3, self.related_posts_account_btn)
         related_posts_card.header_layout.addStretch()
 
         # 2열 그리드 레이아웃 생성
@@ -10389,7 +10422,8 @@ class NaverBlogGUI(QMainWindow):
         layout.addWidget(related_posts_card, 3, 1)
         
         # 초기 관련 글 상태 반영
-        self.toggle_related_posts()
+        self.toggle_related_posts(emit_status=False)
+        self._apply_account_settings_lock()
 
         # 설정 변경 시 모니터링 상태를 실시간으로 갱신
         def _refresh_settings_status():
@@ -10522,6 +10556,32 @@ class NaverBlogGUI(QMainWindow):
                 accounts.append((idx, account_id, account_pw))
         return accounts
 
+    def _is_multi_account_mode(self):
+        return len(self._get_registered_naver_accounts()) >= 2
+
+    def _apply_account_settings_lock(self):
+        multi_mode = self._is_multi_account_mode()
+        self._multi_account_settings_locked = multi_mode
+
+        if hasattr(self, "use_link_checkbox"):
+            self.use_link_checkbox.setEnabled(not multi_mode)
+        if hasattr(self, "use_related_posts_checkbox"):
+            self.use_related_posts_checkbox.setEnabled(not multi_mode)
+        if hasattr(self, "link_save_btn"):
+            self.link_save_btn.setEnabled(not multi_mode)
+        if hasattr(self, "related_posts_save_btn"):
+            self.related_posts_save_btn.setEnabled(not multi_mode)
+
+        if hasattr(self, "external_link_account_btn"):
+            self.external_link_account_btn.setEnabled(True)
+        if hasattr(self, "related_posts_account_btn"):
+            self.related_posts_account_btn.setEnabled(True)
+
+        if hasattr(self, "use_link_checkbox"):
+            self.toggle_external_link(emit_status=False)
+        if hasattr(self, "use_related_posts_checkbox"):
+            self.toggle_related_posts(emit_status=False)
+
     def _get_account_cycle_start_position(self, accounts):
         if not accounts:
             return 0
@@ -10616,6 +10676,7 @@ class NaverBlogGUI(QMainWindow):
 
         self._apply_external_link_ui_for_account(self.config.get("naver_id", ""))
         self._apply_related_posts_ui_for_account(self.config.get("naver_id", ""))
+        self._apply_account_settings_lock()
 
     def on_naver_account_selector_changed(self, index):
         try:
@@ -10661,31 +10722,38 @@ class NaverBlogGUI(QMainWindow):
                 "related_posts_enabled": bool(item.get("related_posts_enabled", True)),
                 "related_posts_title": str(item.get("related_posts_title", "")).strip(),
                 "blog_address": normalize_blog_address(str(item.get("blog_address", "")).strip()),
+                "related_posts_mode": str(item.get("related_posts_mode", "latest")).strip().lower() or "latest",
             }
         return cleaned
 
     def _get_related_posts_values_for_account(self, account_id):
         account_id = str(account_id or "").strip()
         base_enabled = bool(self.config.get("related_posts_enabled", True))
+        base_mode = str(self.config.get("related_posts_mode", "latest")).strip().lower() or "latest"
+        if base_mode not in ("latest", "popular"):
+            base_mode = "latest"
         base_title = str(self.config.get("related_posts_title", "")).strip()
         if not base_title:
             base_title = self._related_posts_default_title()
         base_blog = normalize_blog_address(str(self.config.get("blog_address", "")).strip())
 
         if not account_id:
-            return base_enabled, base_title, base_blog
+            return base_enabled, base_title, base_blog, base_mode
 
         account_map = self._get_related_posts_account_settings()
         item = account_map.get(account_id, {})
         enabled = bool(item.get("related_posts_enabled", base_enabled))
         title = str(item.get("related_posts_title", "")).strip() or base_title
         blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip()) or base_blog
-        return enabled, title, blog_address
+        mode = str(item.get("related_posts_mode", base_mode)).strip().lower() or base_mode
+        if mode not in ("latest", "popular"):
+            mode = base_mode
+        return enabled, title, blog_address, mode
 
     def _apply_related_posts_ui_for_account(self, account_id):
         if not hasattr(self, "related_posts_title_entry") or not hasattr(self, "blog_address_entry"):
             return
-        enabled, title, blog_address = self._get_related_posts_values_for_account(account_id)
+        enabled, title, blog_address, mode = self._get_related_posts_values_for_account(account_id)
         if hasattr(self, "use_related_posts_checkbox"):
             self.use_related_posts_checkbox.blockSignals(True)
             self.use_related_posts_checkbox.setChecked(bool(enabled))
@@ -10698,8 +10766,14 @@ class NaverBlogGUI(QMainWindow):
         self.config["related_posts_enabled"] = bool(enabled)
         self.config["related_posts_title"] = title
         self.config["blog_address"] = blog_address
+        self.config["related_posts_mode"] = mode
+        if hasattr(self, "related_posts_mode_popular") and hasattr(self, "related_posts_mode_latest"):
+            if mode == "popular":
+                self.related_posts_mode_popular.setChecked(True)
+            else:
+                self.related_posts_mode_latest.setChecked(True)
         if hasattr(self, "use_related_posts_checkbox"):
-            self.toggle_related_posts()
+            self.toggle_related_posts(emit_status=False)
 
     def _save_related_posts_account_settings(self, settings_map):
         normalized = {}
@@ -10711,10 +10785,14 @@ class NaverBlogGUI(QMainWindow):
                 enabled = bool(item.get("related_posts_enabled", True))
                 title = str(item.get("related_posts_title", "")).strip()
                 blog_address = normalize_blog_address(str(item.get("blog_address", "")).strip())
+                mode = str(item.get("related_posts_mode", "latest")).strip().lower() or "latest"
+                if mode not in ("latest", "popular"):
+                    mode = "latest"
                 normalized[key] = {
                     "related_posts_enabled": enabled,
                     "related_posts_title": title,
                     "blog_address": blog_address,
+                    "related_posts_mode": mode,
                 }
         self.config["related_posts_account_settings"] = normalized
         self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
@@ -10852,7 +10930,7 @@ class NaverBlogGUI(QMainWindow):
         self.config["external_links"] = external_links
         self.config["external_link_mode"] = external_link_mode
         self.config["external_link_text"] = external_link_text
-        self.toggle_external_link()
+        self.toggle_external_link(emit_status=False)
 
     def _save_external_link_account_settings(self, settings_map):
         normalized = {}
@@ -11141,7 +11219,8 @@ class NaverBlogGUI(QMainWindow):
                 self.related_posts_mode_latest.setChecked(True)
         self._apply_related_posts_ui_for_account(self._selected_naver_account_id())
         if hasattr(self, "use_related_posts_checkbox"):
-            self.toggle_related_posts()
+            self.toggle_related_posts(emit_status=False)
+        self._apply_account_settings_lock()
         
 
         # Qt 이벤트 루프가 텍스트를 완전히 반영한 후 상태 업데이트
@@ -11607,19 +11686,21 @@ class NaverBlogGUI(QMainWindow):
             if hasattr(self, "pw_toggle_btn") and self.pw_toggle_btn:
                 self.pw_toggle_btn.setText("비공개")
     
-    def toggle_external_link(self):
+    def toggle_external_link(self, _state=None, emit_status=True):
         """외부 링크 활성화/비활성화"""
         enabled = self.use_link_checkbox.isChecked()
+        locked = bool(getattr(self, "_multi_account_settings_locked", False))
+        controls_enabled = bool(enabled and not locked)
         
         # 활성화 상태 설정
-        self.link_url_entry.setEnabled(enabled)
-        self.link_text_entry.setEnabled(enabled)
+        self.link_url_entry.setEnabled(controls_enabled)
+        self.link_text_entry.setEnabled(controls_enabled)
         if hasattr(self, "link_urls_entry"):
-            self.link_urls_entry.setEnabled(enabled)
+            self.link_urls_entry.setEnabled(controls_enabled)
         if hasattr(self, "link_insert_mode_combo"):
-            self.link_insert_mode_combo.setEnabled(enabled)
+            self.link_insert_mode_combo.setEnabled(controls_enabled)
         if hasattr(self, "link_add_btn"):
-            self.link_add_btn.setEnabled(enabled)
+            self.link_add_btn.setEnabled(controls_enabled)
         
         # ON/OFF 라벨 업데이트
         if enabled:
@@ -11634,9 +11715,14 @@ class NaverBlogGUI(QMainWindow):
                     font-weight: bold;
                 }}
             """)
-            self.link_url_entry.setFocus()
-            self.link_url_entry.selectAll()
-            self._update_settings_status("🔗 외부 링크 기능 ON")
+            if controls_enabled:
+                self.link_url_entry.setFocus()
+                self.link_url_entry.selectAll()
+            if emit_status:
+                if locked:
+                    self._update_settings_status("🔗 다중 계정 모드: 외부 링크는 계정별 설정에서 관리합니다")
+                else:
+                    self._update_settings_status("🔗 외부 링크 기능 ON")
         else:
             self.link_status_label.setText("OFF")
             self.link_status_label.setStyleSheet(f"""
@@ -11649,7 +11735,8 @@ class NaverBlogGUI(QMainWindow):
                     font-weight: bold;
                 }}
             """)
-            self._update_settings_status("🔗 외부 링크 기능 OFF")
+            if emit_status:
+                self._update_settings_status("🔗 외부 링크 기능 OFF")
 
     def add_external_link_url(self):
         """외부 링크 URL 목록에 현재 입력 URL을 추가"""
@@ -11665,9 +11752,11 @@ class NaverBlogGUI(QMainWindow):
         self.link_url_entry.setText(new_url)
         self._update_settings_status(f"🔗 외부 링크 URL이 추가되었습니다 ({len(links)}개)")
 
-    def toggle_related_posts(self):
+    def toggle_related_posts(self, _state=None, emit_status=True):
         """관련 글 활성화/비활성화"""
         enabled = self.use_related_posts_checkbox.isChecked()
+        locked = bool(getattr(self, "_multi_account_settings_locked", False))
+        controls_enabled = bool(enabled and not locked)
         self.config["related_posts_enabled"] = enabled
 
         for widget in (
@@ -11677,7 +11766,7 @@ class NaverBlogGUI(QMainWindow):
             self.related_posts_mode_popular,
             self.related_posts_save_btn,
         ):
-            widget.setEnabled(enabled)
+            widget.setEnabled(controls_enabled)
 
         if enabled:
             self.related_posts_status_chip.setText("ON")
@@ -11691,7 +11780,11 @@ class NaverBlogGUI(QMainWindow):
                     font-weight: bold;
                 }}
             """)
-            self._update_settings_status("📚 관련 글 기능 ON")
+            if emit_status:
+                if locked:
+                    self._update_settings_status("📚 다중 계정 모드: 관련 글은 계정별 설정에서 관리합니다")
+                else:
+                    self._update_settings_status("📚 관련 글 기능 ON")
         else:
             self.related_posts_status_chip.setText("OFF")
             self.related_posts_status_chip.setStyleSheet(f"""
@@ -11704,7 +11797,8 @@ class NaverBlogGUI(QMainWindow):
                     font-weight: bold;
                 }}
             """)
-            self._update_settings_status("📚 관련 글 기능 OFF")
+            if emit_status:
+                self._update_settings_status("📚 관련 글 기능 OFF")
     
     def _clear_example_text(self, widget, example_text):
         """예시 텍스트 삭제"""
@@ -12195,6 +12289,7 @@ class NaverBlogGUI(QMainWindow):
                 "related_posts_enabled": bool(enabled),
                 "related_posts_title": title,
                 "blog_address": blog_address,
+                "related_posts_mode": mode_value,
             }
             self.config["related_posts_account_settings"] = account_map
         
@@ -12358,10 +12453,11 @@ class NaverBlogGUI(QMainWindow):
                     self.config["active_naver_account_slot"] = slot_idx
                     self.config["naver_id"] = cycle_naver_id
                     self.config["naver_pw"] = cycle_naver_pw
-                    related_posts_enabled, related_posts_title, blog_address = self._get_related_posts_values_for_account(cycle_naver_id)
+                    related_posts_enabled, related_posts_title, blog_address, related_posts_mode = self._get_related_posts_values_for_account(cycle_naver_id)
                     self.config["related_posts_enabled"] = bool(related_posts_enabled)
                     self.config["related_posts_title"] = related_posts_title
                     self.config["blog_address"] = blog_address
+                    self.config["related_posts_mode"] = related_posts_mode
                     use_external_link, account_external_links, account_external_link_text, account_external_link_mode = self._get_external_link_values_for_account(cycle_naver_id)
                     selected_external_link = self._choose_external_link_for_account(
                         cycle_naver_id,
@@ -12397,7 +12493,7 @@ class NaverBlogGUI(QMainWindow):
                             scheduled_hour="00",
                             scheduled_minute="00",
                             related_posts_title=related_posts_title,
-                            related_posts_mode=self.config.get("related_posts_mode", "latest"),
+                            related_posts_mode=related_posts_mode,
                             blog_address=blog_address,
                             callback=self.log_message,
                             config=self.config
@@ -12421,7 +12517,7 @@ class NaverBlogGUI(QMainWindow):
                         self.automation.external_link = external_link
                         self.automation.external_link_text = external_link_text
                         self.automation.related_posts_title = related_posts_title
-                        self.automation.related_posts_mode = self.config.get("related_posts_mode", "latest")
+                        self.automation.related_posts_mode = related_posts_mode
                         self.automation.blog_address = normalize_blog_address(blog_address)
                         self.automation.callback = self.log_message
                         self.automation.config = self.config
