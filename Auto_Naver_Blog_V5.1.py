@@ -177,11 +177,38 @@ def _resolve_account_binding_meta_dir(base_dir, account_id, create=False):
 
 def _resolve_shared_keyword_paths(base_dir, create=False):
     keyword_dir = os.path.join(base_dir, "setting", "keywords")
-    keywords_file = os.path.join(keyword_dir, "keywords.txt")
+    default_keywords_file = os.path.join(keyword_dir, "keywords.txt")
     used_keywords_file = os.path.join(keyword_dir, "used_keywords.txt")
+    keywords_file = default_keywords_file
+
+    def _is_candidate_txt(path):
+        if not path or not os.path.isfile(path):
+            return False
+        name = os.path.basename(path).lower()
+        if not name.endswith(".txt"):
+            return False
+        if name.startswith("used_"):
+            return False
+        if name in ("keywords_source_name.txt", "keywords_source_path.txt", "keywords_source_sync_sig.txt"):
+            return False
+        return True
+
+    if os.path.isdir(keyword_dir):
+        try:
+            candidates = []
+            for n in os.listdir(keyword_dir):
+                p = os.path.join(keyword_dir, n)
+                if _is_candidate_txt(p):
+                    candidates.append(p)
+            if candidates:
+                candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+                keywords_file = candidates[0]
+        except Exception:
+            pass
+
     if create:
         os.makedirs(keyword_dir, exist_ok=True)
-        if not os.path.exists(keywords_file):
+        if not os.path.exists(keywords_file) and os.path.abspath(keywords_file) == os.path.abspath(default_keywords_file):
             try:
                 with open(keywords_file, "w", encoding="utf-8") as f:
                     f.write("# 키워드를 한 줄에 하나씩 입력하세요\n")
@@ -197,7 +224,7 @@ def _resolve_shared_keyword_paths(base_dir, create=False):
 
 def _resolve_account_keyword_paths(base_dir, account_id, create=False):
     shared_keywords_file, shared_used_file = _resolve_shared_keyword_paths(base_dir, create=create)
-    source_path = _read_keyword_source_path(base_dir, account_id)
+    source_path = _find_keyword_source_path(base_dir, account_id)
     if source_path and os.path.isfile(source_path):
         used_keywords_file = _resolve_source_used_keyword_log_path(source_path) or shared_used_file
         if create:
@@ -594,7 +621,12 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
             for root in rel_roots:
                 _add(os.path.join(root, selected_font))
 
-    # 2) 시스템 폰트 우선 (자동 선택 시 한글 깨짐 방지)
+    # 2) 사용자 폴더(특히 setting/image/ttf) 우선 스캔
+    _scan_dir(image_folder)
+    _scan_dir(os.path.join(image_folder, "ttf"))
+    _scan_dir(os.path.join(data_dir, "setting", "image", "ttf"))
+
+    # 3) 시스템 폰트는 최후 폴백으로만 사용
     system_fonts = [
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/malgunbd.ttf",
@@ -612,11 +644,6 @@ def _collect_thumbnail_font_candidates(data_dir, image_folder, config):
         ]
     for fp in system_fonts:
         _add(fp)
-
-    # 3) 사용자 폴더 스캔
-    _scan_dir(image_folder)
-    _scan_dir(os.path.join(image_folder, "ttf"))
-    _scan_dir(os.path.join(data_dir, "setting", "image", "ttf"))
 
     return font_candidates
 
@@ -692,6 +719,31 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
             lines.append(title[i:i + max_chars_per_line])
         title_text = "\n".join(lines[:max_lines])
 
+    selected_font_file = str((config or {}).get("thumbnail_font_file", "")).strip()
+    ordered_font_candidates = list(font_candidates or [])
+    if not selected_font_file and ordered_font_candidates:
+        custom_fonts = []
+        fallback_fonts = []
+        for fp in ordered_font_candidates:
+            norm = os.path.normcase(os.path.abspath(fp)).replace("/", "\\")
+            if "\\setting\\image\\ttf\\" in norm:
+                custom_fonts.append(fp)
+            else:
+                fallback_fonts.append(fp)
+
+        base_pool = custom_fonts if custom_fonts else ordered_font_candidates
+        seed_text = f"{title_text}|{os.path.basename(source_image_path)}|{os.path.basename(output_path)}"
+        seed_value = 0
+        for i, ch in enumerate(seed_text):
+            seed_value += (i + 1) * ord(ch)
+        start_idx = seed_value % len(base_pool)
+        rotated_pool = base_pool[start_idx:] + base_pool[:start_idx]
+
+        if custom_fonts:
+            ordered_font_candidates = rotated_pool + fallback_fonts
+        else:
+            ordered_font_candidates = rotated_pool
+
     available_width = 300 - (margin * 2)
     available_height = 300 - (margin * 2)
     font = None
@@ -701,7 +753,7 @@ def _render_thumbnail_image(source_image_path, output_path, title, config, font_
     # 고정 폰트 크기에서도 루프가 비지 않도록 하한을 충분히 낮춘다.
     # (기존 15에서 range가 비어 기본 폰트로 폴백되어 한글이 깨지는 문제 방지)
     def _load_font_for_size(size):
-        for font_path in font_candidates:
+        for font_path in ordered_font_candidates:
             try:
                 return ImageFont.truetype(font_path, size)
             except Exception:
