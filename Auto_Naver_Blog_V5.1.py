@@ -10208,6 +10208,14 @@ class NaverBlogGUI(QMainWindow):
         related_posts_card = PremiumCard("관련 글 설정", "", self)
         related_posts_header = related_posts_card.header_layout.itemAt(0).widget()
         related_posts_header.setText("📚 관련 글 설정")
+        related_posts_header.setMinimumHeight(34)
+        related_posts_header.setStyleSheet(f"""
+            color: #000000;
+            background-color: {NAVER_GREEN_LIGHT};
+            border: 2px solid {NAVER_GREEN};
+            border-radius: 8px;
+            padding: 3px 12px;
+        """)
 
         # 관련 글 ON/OFF
         related_toggle_container = QWidget()
