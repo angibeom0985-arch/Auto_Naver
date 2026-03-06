@@ -8069,36 +8069,33 @@ class ExternalLinkAccountDialog(QDialog):
             text_entry.setPlaceholderText("더 알아보기")
             text_entry.setFixedHeight(34)
 
-            mode_combo = QComboBox()
-            mode_combo.addItem("순차", "sequential")
-            mode_combo.addItem("랜덤", "random")
-            mode_combo.setFixedHeight(34)
-
-            urls_entry = QTextEdit()
-            urls_entry.setPlaceholderText("링크 URL 목록 (한 줄에 하나)")
-            urls_entry.setMinimumHeight(72)
-
-            enabled, ext_links, ext_text, ext_mode = self.parent._get_external_link_values_for_account(account_id)
+            enabled, ext_links, ext_text, _ext_mode = self.parent._get_external_link_values_for_account(account_id)
             ext_url = ext_links[0] if ext_links else ""
             use_checkbox.setChecked(bool(enabled))
             url_entry.setText(ext_url)
             text_entry.setText(ext_text)
-            urls_entry.setPlainText(self.parent._external_links_to_text(ext_links))
-            mode_idx = mode_combo.findData(ext_mode)
-            mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
             url_entry.setEnabled(bool(enabled))
             text_entry.setEnabled(bool(enabled))
-            urls_entry.setEnabled(bool(enabled))
-            mode_combo.setEnabled(bool(enabled))
 
-            def _on_toggle(state, url_widget=url_entry, text_widget=text_entry, urls_widget=urls_entry, mode_widget=mode_combo):
+            def _on_toggle(state, url_widget=url_entry, text_widget=text_entry):
                 active = bool(state)
                 url_widget.setEnabled(active)
                 text_widget.setEnabled(active)
-                urls_widget.setEnabled(active)
-                mode_widget.setEnabled(active)
 
             use_checkbox.toggled.connect(_on_toggle)
+
+            def _bind_clear_on_focus(widget, example_text):
+                original_focus_in = widget.focusInEvent
+
+                def _on_focus_in(event, w=widget, sample=example_text, base_handler=original_focus_in):
+                    if w.isEnabled() and w.text().strip() == sample:
+                        w.clear()
+                    base_handler(event)
+
+                widget.focusInEvent = _on_focus_in
+
+            _bind_clear_on_focus(url_entry, "https://example.com")
+            _bind_clear_on_focus(text_entry, "더 알아보기")
 
             top_row = QHBoxLayout()
             top_row.setContentsMargins(0, 0, 0, 0)
@@ -8106,13 +8103,11 @@ class ExternalLinkAccountDialog(QDialog):
             top_row.addWidget(use_checkbox, 0)
             top_row.addWidget(url_entry, 1)
             top_row.addWidget(text_entry, 1)
-            top_row.addWidget(mode_combo, 0)
             inputs_row.addLayout(top_row)
-            inputs_row.addWidget(urls_entry)
             row_layout.addLayout(inputs_row)
 
             layout.addWidget(row_frame)
-            self.account_inputs.append((account_id, use_checkbox, url_entry, text_entry, mode_combo, urls_entry))
+            self.account_inputs.append((account_id, use_checkbox, url_entry, text_entry))
             visible_row_count += 1
 
         if not self.account_inputs:
@@ -8136,22 +8131,21 @@ class ExternalLinkAccountDialog(QDialog):
         layout.addLayout(footer)
 
         row_count = max(visible_row_count, 1)
-        target_height = 46 + (row_count * 138) + 62
-        target_height = max(180, min(target_height, 560))
+        target_height = 46 + (row_count * 102) + 62
+        target_height = max(170, min(target_height, 520))
         self.setFixedHeight(target_height)
 
     def save_and_close(self):
         settings_map = {}
-        for account_id, use_checkbox, url_entry, text_entry, mode_combo, urls_entry in self.account_inputs:
+        for account_id, use_checkbox, url_entry, text_entry in self.account_inputs:
             enabled = bool(use_checkbox.isChecked())
             link_value = url_entry.text().strip()
-            links = self.parent._parse_external_links_text(urls_entry.toPlainText(), fallback_link=link_value)
-            mode = self.parent._normalize_external_link_mode(mode_combo.currentData())
+            links = [link_value] if link_value else []
             settings_map[account_id] = {
                 "use_external_link": enabled,
                 "external_link": link_value,
                 "external_links": links,
-                "external_link_mode": mode,
+                "external_link_mode": "sequential",
                 "external_link_text": text_entry.text().strip(),
             }
         self.parent._save_external_link_account_settings(settings_map)
