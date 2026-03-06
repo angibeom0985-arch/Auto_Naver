@@ -9523,7 +9523,9 @@ class NaverBlogGUI(QMainWindow):
         layout.addWidget(time_card, 1, 1)
         
         # === Row 3, Col 0: 외부 링크 설정 ===
+        section_header_height = 62
         link_card = PremiumCard("외부 링크 설정", "🔗")
+        link_card.header.setFixedHeight(section_header_height)
         
         # 헤더에 체크박스와 ON/OFF 상태 표시 추가
         checkbox_container = QWidget()
@@ -10206,6 +10208,7 @@ class NaverBlogGUI(QMainWindow):
         
         # ===== 관련 글 설정 카드 =====
         related_posts_card = PremiumCard("관련 글 설정", "", self)
+        related_posts_card.header.setFixedHeight(section_header_height)
         related_posts_header = related_posts_card.header_layout.itemAt(0).widget()
         related_posts_header.setText("📚 관련 글 설정")
 
